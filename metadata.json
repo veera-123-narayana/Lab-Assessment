@@ -1,0 +1,6 @@
+{
+  "name": "Apogee Exam & Lab Assessment Portal",
+  "description": "AI-powered lab and classroom examination platform featuring secure student proctoring, fullscreen violation tracking, Gemini MCQ generation, analytics, and automated Google Drive and Google Sheets exports.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
