@@ -119,8 +119,25 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
   const handleStartExam = async () => {
     if (!activeExam) return;
 
-    // Jumble / shuffle questions for each student uniquely based on random seed
-    const shuffled = [...activeExam.questions].sort(() => Math.random() - 0.5);
+    // Jumble / shuffle questions and option order for each student uniquely (Master Prompt Section 38 & 47)
+    const shuffled = [...activeExam.questions]
+      .sort(() => Math.random() - 0.5)
+      .map((q) => {
+        // Randomize option order while preserving correct answer mapping
+        const indexedOptions = q.options.map((opt, i) => ({
+          text: opt,
+          isCorrect: i === q.correctAnswer,
+        })).sort(() => Math.random() - 0.5);
+
+        const newOptions = indexedOptions.map((o) => o.text) as [string, string, string, string];
+        const newCorrectAnswer = indexedOptions.findIndex((o) => o.isCorrect);
+
+        return {
+          ...q,
+          options: newOptions,
+          correctAnswer: newCorrectAnswer >= 0 ? newCorrectAnswer : 0,
+        };
+      });
     setShuffledQuestions(shuffled);
     setCurrentQuestionIndex(0);
     setSelectedAnswers({});
