@@ -1,1 +1,103 @@
 @import "tailwindcss";
+
+@layer base {
+  :root {
+    --bg-primary: #02040A;
+    --bg-secondary: #050914;
+    --blue-deep: #071A3D;
+    --blue-electric: #1677FF;
+    --blue-bright: #38A8FF;
+    --cyan: #5BE7FF;
+    --glass-bg: rgba(255, 255, 255, 0.045);
+    --glass-border: rgba(255, 255, 255, 0.12);
+    --blue-glow: rgba(22, 119, 255, 0.35);
+    --cyan-glow: rgba(91, 231, 255, 0.25);
+  }
+
+  body {
+    background-color: #02040A;
+    color: #FFFFFF;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    overflow-x: hidden;
+  }
+}
+
+/* Futuristic Technical Typography Classes */
+.font-display {
+  font-family: 'Orbitron', 'Space Grotesk', system-ui, sans-serif;
+  letter-spacing: 0.04em;
+}
+
+.font-tech {
+  font-family: 'Space Grotesk', 'Inter', system-ui, sans-serif;
+}
+
+.font-code {
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* Glassmorphism Surface Classes */
+.glass-panel {
+  background: rgba(255, 255, 255, 0.04);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 20px 80px rgba(0, 0, 0, 0.45);
+}
+
+.glass-panel-elevated {
+  background: rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(91, 231, 255, 0.2);
+  box-shadow: 0 25px 90px rgba(0, 0, 0, 0.6), 0 0 35px rgba(22, 119, 255, 0.15);
+}
+
+.glass-panel-glow {
+  background: rgba(7, 26, 61, 0.4);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(91, 231, 255, 0.35);
+  box-shadow: 0 0 40px rgba(22, 119, 255, 0.25), inset 0 0 25px rgba(91, 231, 255, 0.08);
+}
+
+/* Cyber Scanning Line Animation */
+@keyframes cyberScan {
+  0% {
+    transform: translateY(-100%);
+    opacity: 0;
+  }
+  50% {
+    opacity: 0.8;
+  }
+  100% {
+    transform: translateY(1000%);
+    opacity: 0;
+  }
+}
+
+.animate-scan-line {
+  animation: cyberScan 3s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+}
+
+/* Subtle background grid */
+.bg-cyber-grid {
+  background-size: 40px 40px;
+  background-image: 
+    linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+}
+
+/* Radial Focal Glow */
+.bg-focal-glow {
+  background: radial-gradient(circle at 50% 30%, rgba(22, 119, 255, 0.18) 0%, rgba(7, 26, 61, 0.08) 50%, transparent 80%);
+}
+
+/* Respect reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

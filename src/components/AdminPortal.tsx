@@ -27,10 +27,19 @@ import {
   Key,
   Cpu,
   Globe,
-  Check
+  Check,
+  Upload,
+  FileText,
+  FileUp,
+  CheckCheck,
+  Copy,
+  ArrowUp,
+  ArrowDown,
+  Sliders,
+  Edit3
 } from 'lucide-react';
 import { Exam, ExamDifficulty, Question, StudentSubmission, FacultyReviewSummary } from '../types';
-import { generateQuestionsWithAI, verifyAnyApiKey, AIProvider } from '../lib/gemini';
+import { generateQuestionsWithAI, verifyAnyApiKey, extractPdfText, AIProvider } from '../lib/gemini';
 import { 
   buildExcelWorksheets,
   downloadOfflineExcel, 
@@ -110,6 +119,49 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const [formYear, setFormYear] = useState<string>('3rd Year');
   const [formAdditionalInstructions, setFormAdditionalInstructions] = useState<string>('Focus on practical laboratory scenarios and multi-step reasoning.');
   const [formGenerationMode, setFormGenerationMode] = useState<string>('ai_generated');
+
+  // Creation Sub-Mode Selector
+  const [creationMode, setCreationMode] = useState<'ai_topic' | 'pdf_upload' | 'custom_admin'>('ai_topic');
+
+  // PDF Upload & Extraction States (PDF to Questions with Levels)
+  const [pdfFile, setPdfFile] = useState<File | null>(null);
+  const [pdfFileName, setPdfFileName] = useState<string>('');
+  const [pdfFileSize, setPdfFileSize] = useState<string>('');
+  const [pdfPages, setPdfPages] = useState<number>(1);
+  const [pdfCharCount, setPdfCharCount] = useState<number>(0);
+  const [pdfText, setPdfText] = useState<string>('');
+  const [pdfSnippet, setPdfSnippet] = useState<string>('');
+  const [isExtractingPdf, setIsExtractingPdf] = useState<boolean>(false);
+  const [pdfExtractionNotice, setPdfExtractionNotice] = useState<string>('');
+  const [showPdfTextPreview, setShowPdfTextPreview] = useState<boolean>(false);
+  const [pdfDifficulty, setPdfDifficulty] = useState<ExamDifficulty>('Medium');
+  const [pdfQuestionCount, setPdfQuestionCount] = useState<number>(10);
+  const [pdfExamCode, setPdfExamCode] = useState<string>('PDF-LAB-201');
+  const [pdfExamTitle, setPdfExamTitle] = useState<string>('Uploaded Syllabus Assessment');
+  const [pdfSubject, setPdfSubject] = useState<string>('Computer Science & Engineering');
+  const [pdfSpecificFocus, setPdfSpecificFocus] = useState<string>('');
+  const [pdfDuration, setPdfDuration] = useState<number>(30);
+  const [pdfMaxMarks, setPdfMaxMarks] = useState<number>(10);
+
+  // Custom Test Builder States (Admin Manual Question Authoring & Approval)
+  const [isAuthoringModalOpen, setIsAuthoringModalOpen] = useState<boolean>(false);
+  const [authQuestionIndex, setAuthQuestionIndex] = useState<number | null>(null);
+  const [authText, setAuthText] = useState<string>('');
+  const [authOptionA, setAuthOptionA] = useState<string>('');
+  const [authOptionB, setAuthOptionB] = useState<string>('');
+  const [authOptionC, setAuthOptionC] = useState<string>('');
+  const [authOptionD, setAuthOptionD] = useState<string>('');
+  const [authCorrectAnswer, setAuthCorrectAnswer] = useState<number>(0);
+  const [authExplanation, setAuthExplanation] = useState<string>('');
+  const [authSubtopic, setAuthSubtopic] = useState<string>('');
+  const [authDifficulty, setAuthDifficulty] = useState<'easy' | 'normal' | 'medium' | 'hard'>('normal');
+  const [authQuestionType, setAuthQuestionType] = useState<string>('conceptual');
+  const [authCodeSnippet, setAuthCodeSnippet] = useState<string>('');
+  const [authMarks, setAuthMarks] = useState<number>(1);
+  const [authIsApproved, setAuthIsApproved] = useState<boolean>(true);
+  const [inlineEditingIndex, setInlineEditingIndex] = useState<number | null>(null);
+  const [questionFilter, setQuestionFilter] = useState<'all' | 'approved' | 'pending'>('all');
+  const [publishFeedback, setPublishFeedback] = useState<string>('');
 
   // Generator Process & Faculty Review Summary
   const [isGeneratingAI, setIsGeneratingAI] = useState<boolean>(false);
@@ -324,16 +376,246 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     }
   };
 
-  const handleAddCustomQuestion = () => {
-    const newQ: Question = {
-      id: `q_custom_${Date.now()}`,
-      text: 'New Question: Enter your question description here...',
-      options: ['Option A', 'Option B', 'Option C', 'Option D'],
-      correctAnswer: 0,
-      explanation: 'Explanation for correct key.',
-      topic: formTopic || 'General',
+  // Upload and Parse PDF Syllabus / Notes File
+  const handlePdfFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsExtractingPdf(true);
+    setPdfExtractionNotice('Analyzing and extracting text from PDF document...');
+    setPdfFile(file);
+    setPdfFileName(file.name);
+    setPdfFileSize(`${(file.size / 1024).toFixed(1)} KB`);
+
+    // Auto-generate suggested code & title
+    const baseName = file.name.replace(/\.[^/.]+$/, '').replace(/[_-]/g, ' ');
+    const autoTitle = baseName.charAt(0).toUpperCase() + baseName.slice(1);
+    setPdfExamTitle(`${autoTitle} Assessment`);
+    setPdfExamCode(`PDF-${Math.floor(100 + Math.random() * 900)}`);
+
+    try {
+      const res = await extractPdfText(file);
+      if (res.success && res.text) {
+        setPdfText(res.text);
+        setPdfCharCount(res.charCount);
+        setPdfPages(res.pages || 1);
+        setPdfSnippet(res.snippet);
+        setPdfExtractionNotice(`✓ Extracted ${res.charCount.toLocaleString()} characters from "${file.name}" (${res.pages || 1} pages). Ready for questions synthesis.`);
+      } else {
+        setPdfExtractionNotice('✓ Document uploaded. Ready for question synthesis.');
+      }
+    } catch (err: any) {
+      console.warn('PDF upload extract notice:', err);
+      setPdfExtractionNotice(`File ${file.name} ready for questions generation.`);
+    } finally {
+      setIsExtractingPdf(false);
+    }
+  };
+
+  // Generate Questions from Uploaded PDF with Difficulty Levels
+  const handleGenerateQuestionsFromPdf = async () => {
+    if (!pdfText.trim()) {
+      setPdfExtractionNotice('Please upload a PDF document before generating questions.');
+      return;
+    }
+
+    setIsGeneratingAI(true);
+    setGenerationNotice(`Synthesizing ${pdfQuestionCount} questions from ${pdfFileName} at ${pdfDifficulty} level...`);
+
+    try {
+      const res = await generateQuestionsWithAI({
+        subject: pdfSubject.trim() || formSubject.trim(),
+        topic: pdfExamTitle.trim() || `Assessment from ${pdfFileName}`,
+        mainTopic: pdfExamTitle.trim() || `Exam from ${pdfFileName}`,
+        coverage: pdfSpecificFocus.trim() || `Complete syllabus content from ${pdfFileName}`,
+        topicsToCover: pdfSpecificFocus.trim() || `Directly derived from ${pdfFileName}`,
+        academicLevel: formAcademicLevel,
+        count: pdfQuestionCount,
+        difficulty: pdfDifficulty,
+        branch: formBranch,
+        year: formYear,
+        maxMarks: pdfMaxMarks || pdfQuestionCount,
+        duration: pdfDuration,
+        additionalInstructions: `Strictly derive questions from the uploaded document text. Target difficulty level: ${pdfDifficulty}. ${pdfSpecificFocus}`.trim(),
+        generationMode: 'research_informed',
+        pdfText: pdfText.trim(),
+        pdfFilename: pdfFileName,
+        provider: aiProvider,
+        customApiKey: aiApiKey.trim() || undefined,
+        customBaseUrl: aiCustomBaseUrl.trim() || undefined,
+        customModel: aiCustomModel.trim() || undefined,
+      });
+
+      const pdfQuestions: Question[] = res.questions.map((q, idx) => ({
+        ...q,
+        source: {
+          type: 'admin_upload',
+          title: pdfFileName || 'Uploaded PDF Syllabus',
+        },
+        difficulty: (q.difficulty || pdfDifficulty).toLowerCase(),
+        isApproved: false, // Ready for admin faculty to review and approve!
+        questionNumber: idx + 1,
+      }));
+
+      setGeneratedQuestions(pdfQuestions);
+      if (res.facultySummary) {
+        setFacultySummary(res.facultySummary);
+      }
+      setFormExamCode(pdfExamCode.trim().toUpperCase());
+      setFormTitle(pdfExamTitle.trim() || `PDF Exam: ${pdfFileName}`);
+      setFormDifficulty(pdfDifficulty);
+      setFormCount(pdfQuestions.length);
+      setFormMaxMarks(pdfMaxMarks || pdfQuestions.length);
+      setFormDuration(pdfDuration);
+
+      setGenerationNotice(
+        res.warning
+          ? `✓ ${res.warning}`
+          : `✓ Successfully synthesized ${pdfQuestions.length} MCQs from "${pdfFileName}" at ${pdfDifficulty} difficulty! Review and approve questions below.`
+      );
+    } catch (err: any) {
+      console.error('PDF question generation error:', err);
+      setGenerationNotice(`Generation notice: ${err.message || 'Switched to document curriculum synthesis'}`);
+    } finally {
+      setIsGeneratingAI(false);
+    }
+  };
+
+  // Question Approval Handlers
+  const handleToggleApproveQuestion = (index: number) => {
+    setGeneratedQuestions((prev) => {
+      const next = [...prev];
+      if (next[index]) {
+        next[index] = {
+          ...next[index],
+          isApproved: !next[index].isApproved,
+        };
+      }
+      return next;
+    });
+  };
+
+  const handleApproveAllQuestions = () => {
+    setGeneratedQuestions((prev) =>
+      prev.map((q) => ({
+        ...q,
+        isApproved: true,
+      }))
+    );
+  };
+
+  // Custom Authoring Modal Openers
+  const handleOpenAddQuestionModal = () => {
+    setAuthQuestionIndex(null);
+    setAuthText('');
+    setAuthOptionA('');
+    setAuthOptionB('');
+    setAuthOptionC('');
+    setAuthOptionD('');
+    setAuthCorrectAnswer(0);
+    setAuthExplanation('');
+    setAuthSubtopic(formTopic ? `${formTopic} Module` : 'Core Concepts');
+    setAuthDifficulty('normal');
+    setAuthQuestionType('conceptual');
+    setAuthCodeSnippet('');
+    setAuthMarks(1);
+    setAuthIsApproved(true); // Manually authored questions default to approved
+    setIsAuthoringModalOpen(true);
+  };
+
+  const handleOpenEditQuestionModal = (index: number) => {
+    const q = generatedQuestions[index];
+    if (!q) return;
+    setAuthQuestionIndex(index);
+    setAuthText(q.text);
+    setAuthOptionA(q.options[0] || '');
+    setAuthOptionB(q.options[1] || '');
+    setAuthOptionC(q.options[2] || '');
+    setAuthOptionD(q.options[3] || '');
+    setAuthCorrectAnswer(q.correctAnswer ?? 0);
+    setAuthExplanation(q.explanation || '');
+    setAuthSubtopic(q.subtopic || '');
+    setAuthDifficulty((q.difficulty || 'normal').toLowerCase() as any);
+    setAuthQuestionType(q.questionType || 'conceptual');
+    setAuthCodeSnippet(q.codeSnippet || '');
+    setAuthMarks(q.marks || 1);
+    setAuthIsApproved(q.isApproved ?? true);
+    setIsAuthoringModalOpen(true);
+  };
+
+  const handleSaveAuthoredQuestion = () => {
+    if (!authText.trim()) {
+      alert('Please enter the question description.');
+      return;
+    }
+    if (!authOptionA.trim() || !authOptionB.trim() || !authOptionC.trim() || !authOptionD.trim()) {
+      alert('Please fill out all 4 options (A, B, C, and D).');
+      return;
+    }
+
+    const questionData: Question = {
+      id: authQuestionIndex !== null && generatedQuestions[authQuestionIndex]
+        ? generatedQuestions[authQuestionIndex].id
+        : `q_custom_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+      questionNumber: authQuestionIndex !== null ? authQuestionIndex + 1 : generatedQuestions.length + 1,
+      text: authText.trim(),
+      options: [authOptionA.trim(), authOptionB.trim(), authOptionC.trim(), authOptionD.trim()],
+      correctAnswer: authCorrectAnswer,
+      explanation: authExplanation.trim() || 'Verified answer key.',
+      topic: formTopic || 'Custom Assessment',
+      subtopic: authSubtopic.trim() || 'General',
+      difficulty: authDifficulty,
+      questionType: authQuestionType,
+      codeSnippet: authCodeSnippet.trim() || undefined,
+      isApproved: authIsApproved,
+      marks: authMarks || 1,
+      source: { type: 'admin_upload', title: 'Faculty Admin Authored' },
     };
-    setGeneratedQuestions([...generatedQuestions, newQ]);
+
+    if (authQuestionIndex !== null) {
+      // Editing existing question
+      const updated = [...generatedQuestions];
+      updated[authQuestionIndex] = questionData;
+      setGeneratedQuestions(updated);
+    } else {
+      // Adding new question
+      setGeneratedQuestions([...generatedQuestions, questionData]);
+    }
+
+    setIsAuthoringModalOpen(false);
+  };
+
+  const handleDuplicateQuestion = (index: number) => {
+    const q = generatedQuestions[index];
+    if (!q) return;
+    const duplicated: Question = {
+      ...q,
+      id: `q_dup_${Date.now()}_${Math.random().toString(36).substr(2, 3)}`,
+      questionNumber: generatedQuestions.length + 1,
+      text: `${q.text} (Copy)`,
+      isApproved: true,
+    };
+    const next = [...generatedQuestions];
+    next.splice(index + 1, 0, duplicated);
+    setGeneratedQuestions(next);
+  };
+
+  const handleMoveQuestion = (index: number, direction: 'up' | 'down') => {
+    const targetIndex = direction === 'up' ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= generatedQuestions.length) return;
+    const next = [...generatedQuestions];
+    const temp = next[index];
+    next[index] = next[targetIndex];
+    next[targetIndex] = temp;
+    setGeneratedQuestions(next);
+  };
+
+  const handleDeleteQuestion = (index: number) => {
+    setGeneratedQuestions(generatedQuestions.filter((_, i) => i !== index));
+  };
+
+  const handleAddCustomQuestion = () => {
+    handleOpenAddQuestionModal();
   };
 
   // Publish Exam to active student list
@@ -343,11 +625,28 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       return;
     }
 
+    // Auto-approve all questions upon official publication
+    const approvedQuestions = generatedQuestions.map((q, idx) => ({
+      ...q,
+      questionNumber: idx + 1,
+      isApproved: true,
+    }));
+
+    const resolvedTitle = creationMode === 'pdf_upload'
+      ? (pdfExamTitle.trim() || formTitle.trim())
+      : formTitle.trim();
+    const resolvedCode = creationMode === 'pdf_upload'
+      ? (pdfExamCode.trim().toUpperCase() || formExamCode.trim().toUpperCase())
+      : formExamCode.trim().toUpperCase();
+    const resolvedSubject = creationMode === 'pdf_upload'
+      ? (pdfSubject.trim() || formSubject.trim())
+      : formSubject.trim();
+
     const newExam: Exam = {
       id: `exam_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
-      code: formExamCode.trim().toUpperCase(),
-      title: formTitle.trim(),
-      subject: formSubject.trim(),
+      code: resolvedCode,
+      title: resolvedTitle,
+      subject: resolvedSubject,
       topic: formTopic.trim(),
       subtopics: formSubtopics.trim(),
       coverage: formCoverage.trim(),
@@ -355,12 +654,14 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       targetBranch: formBranch,
       targetSection: formSection,
       targetYear: formYear,
-      difficulty: formDifficulty,
-      durationMinutes: formDuration,
-      questions: generatedQuestions,
-      totalMarks: formMaxMarks || generatedQuestions.length,
+      difficulty: creationMode === 'pdf_upload' ? pdfDifficulty : formDifficulty,
+      durationMinutes: creationMode === 'pdf_upload' ? pdfDuration : formDuration,
+      questions: approvedQuestions,
+      totalMarks: (creationMode === 'pdf_upload' ? pdfMaxMarks : formMaxMarks) || approvedQuestions.length,
       additionalInstructions: formAdditionalInstructions.trim(),
-      generationMode: formGenerationMode as any,
+      generationMode: creationMode === 'pdf_upload' ? 'research_informed' : (formGenerationMode as any),
+      creationMethod: creationMode,
+      pdfFilename: creationMode === 'pdf_upload' ? pdfFileName : undefined,
       facultySummary: facultySummary || undefined,
       createdAt: new Date().toISOString(),
       status: 'active',
@@ -373,7 +674,8 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     setActiveTab('exams');
     setGeneratedQuestions([]);
     setGenerationNotice('');
-    alert(`Assessment "${newExam.title}" (${newExam.code}) is now active for students!`);
+    setPublishFeedback(`✓ Assessment "${newExam.title}" (${newExam.code}) is now active with ${approvedQuestions.length} approved questions!`);
+    setTimeout(() => setPublishFeedback(''), 8000);
   };
 
   // Direct Google Account Link for lapassessment1@gmail.com
@@ -655,15 +957,61 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                 isDark ? 'bg-[rgba(17,16,25,0.7)] border-white/10' : 'bg-white border-slate-200 shadow-sm'
               }`}
             >
-              <div className="flex items-center justify-between border-b pb-4 mb-6 border-white/10">
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between border-b pb-5 mb-6 border-white/10 gap-4">
                 <div>
                   <h2 className="text-xl sm:text-2xl font-bold flex items-center gap-2">
                     <Sparkles className="w-5 h-5 text-indigo-400" />
-                    <span>AI MCQ Assessment Generator</span>
+                    <span>Assessment Creator & Multi-Mode Engine</span>
                   </h2>
                   <p className="text-xs opacity-60 mt-1">
-                    Powered by Gemini AI • Produces curriculum-aligned questions with 4 options and answer keys.
+                    Generate exams via Master AI Prompt, Upload Syllabus PDF, or Author & Approve Custom Tests manually.
                   </p>
+                </div>
+
+                {/* 3 Creation Mode Selector */}
+                <div
+                  className={`flex items-center p-1 rounded-2xl border text-xs font-semibold ${
+                    isDark ? 'bg-black/40 border-white/15' : 'bg-slate-100 border-slate-300'
+                  }`}
+                >
+                  <button
+                    type="button"
+                    onClick={() => setCreationMode('ai_topic')}
+                    className={`px-3.5 py-2 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer ${
+                      creationMode === 'ai_topic'
+                        ? 'bg-gradient-to-r from-indigo-500 to-purple-600 text-white shadow-md font-bold'
+                        : 'opacity-70 hover:opacity-100'
+                    }`}
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>AI Topic Generator</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setCreationMode('pdf_upload')}
+                    className={`px-3.5 py-2 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer ${
+                      creationMode === 'pdf_upload'
+                        ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white shadow-md font-bold'
+                        : 'opacity-70 hover:opacity-100'
+                    }`}
+                  >
+                    <FileUp className="w-3.5 h-3.5" />
+                    <span>Upload PDF & AI</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setCreationMode('custom_admin')}
+                    className={`px-3.5 py-2 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer ${
+                      creationMode === 'custom_admin'
+                        ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-md font-bold'
+                        : 'opacity-70 hover:opacity-100'
+                    }`}
+                  >
+                    <Edit3 className="w-3.5 h-3.5" />
+                    <span>Custom Test Builder</span>
+                  </button>
                 </div>
               </div>
 
@@ -905,321 +1253,868 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                 )}
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                {/* Exam Title & Code */}
+              {/* CREATION MODE 1: AI TOPIC & CURRICULUM GENERATOR (Existing Master Prompt) */}
+              {creationMode === 'ai_topic' && (
                 <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5 opacity-80">
-                    Assessment Title
-                  </label>
-                  <input
-                    type="text"
-                    value={formTitle}
-                    onChange={(e) => setFormTitle(e.target.value)}
-                    placeholder="e.g. Data Structures & Algorithms Midterm"
-                    className={`w-full px-3.5 py-2.5 rounded-xl text-sm border focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
-                      isDark ? 'bg-white/5 border-white/15 text-white' : 'bg-slate-50 border-slate-300'
-                    }`}
-                  />
-                </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                    {/* Exam Title & Code */}
+                    <div>
+                      <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5 opacity-80">
+                        Assessment Title
+                      </label>
+                      <input
+                        type="text"
+                        value={formTitle}
+                        onChange={(e) => setFormTitle(e.target.value)}
+                        placeholder="e.g. Data Structures & Algorithms Midterm"
+                        className={`w-full px-3.5 py-2.5 rounded-xl text-sm border focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
+                          isDark ? 'bg-white/5 border-white/15 text-white' : 'bg-slate-50 border-slate-300'
+                        }`}
+                      />
+                    </div>
 
-                <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5 opacity-80">
-                    Course / Exam Code
-                  </label>
-                  <input
-                    type="text"
-                    value={formExamCode}
-                    onChange={(e) => setFormExamCode(e.target.value.toUpperCase())}
-                    placeholder="e.g. CSE-302"
-                    className={`w-full px-3.5 py-2.5 rounded-xl text-sm font-mono border focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
-                      isDark ? 'bg-white/5 border-white/15 text-white' : 'bg-slate-50 border-slate-300'
-                    }`}
-                  />
-                </div>
+                    <div>
+                      <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5 opacity-80">
+                        Course / Exam Code
+                      </label>
+                      <input
+                        type="text"
+                        value={formExamCode}
+                        onChange={(e) => setFormExamCode(e.target.value.toUpperCase())}
+                        placeholder="e.g. CSE-302"
+                        className={`w-full px-3.5 py-2.5 rounded-xl text-sm font-mono border focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
+                          isDark ? 'bg-white/5 border-white/15 text-white' : 'bg-slate-50 border-slate-300'
+                        }`}
+                      />
+                    </div>
 
-                {/* Subject & Academic Level */}
-                <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5 opacity-80">
-                    Subject Name
-                  </label>
-                  <input
-                    type="text"
-                    value={formSubject}
-                    onChange={(e) => setFormSubject(e.target.value)}
-                    placeholder="e.g. Computer Science & Engineering / Operating Systems"
-                    className={`w-full px-3.5 py-2.5 rounded-xl text-sm border focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
-                      isDark ? 'bg-white/5 border-white/15 text-white' : 'bg-slate-50 border-slate-300'
-                    }`}
-                  />
-                </div>
+                    {/* Subject & Academic Level */}
+                    <div>
+                      <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5 opacity-80">
+                        Subject Name
+                      </label>
+                      <input
+                        type="text"
+                        value={formSubject}
+                        onChange={(e) => setFormSubject(e.target.value)}
+                        placeholder="e.g. Computer Science & Engineering / Operating Systems"
+                        className={`w-full px-3.5 py-2.5 rounded-xl text-sm border focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
+                          isDark ? 'bg-white/5 border-white/15 text-white' : 'bg-slate-50 border-slate-300'
+                        }`}
+                      />
+                    </div>
 
-                <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5 opacity-80">
-                    Academic Level
-                  </label>
-                  <select
-                    value={formAcademicLevel}
-                    onChange={(e) => setFormAcademicLevel(e.target.value)}
-                    className={`w-full px-3.5 py-2.5 rounded-xl text-sm border focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
-                      isDark ? 'bg-slate-900 border-white/15 text-white' : 'bg-slate-50 border-slate-300'
-                    }`}
-                  >
-                    <option value="Undergraduate B.Tech">Undergraduate B.Tech / B.E.</option>
-                    <option value="Postgraduate M.Tech">Postgraduate M.Tech / M.S.</option>
-                    <option value="Diploma Polytechnic">Diploma / Polytechnic</option>
-                    <option value="University Final Examination">University Final Examination</option>
-                    <option value="Laboratory Practical Exam">Laboratory Practical Exam</option>
-                  </select>
-                </div>
+                    <div>
+                      <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5 opacity-80">
+                        Academic Level
+                      </label>
+                      <select
+                        value={formAcademicLevel}
+                        onChange={(e) => setFormAcademicLevel(e.target.value)}
+                        className={`w-full px-3.5 py-2.5 rounded-xl text-sm border focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
+                          isDark ? 'bg-slate-900 border-white/15 text-white' : 'bg-slate-50 border-slate-300'
+                        }`}
+                      >
+                        <option value="Undergraduate B.Tech">Undergraduate B.Tech / B.E.</option>
+                        <option value="Postgraduate M.Tech">Postgraduate M.Tech / M.S.</option>
+                        <option value="Diploma Polytechnic">Diploma / Polytechnic</option>
+                        <option value="University Final Examination">University Final Examination</option>
+                        <option value="Laboratory Practical Exam">Laboratory Practical Exam</option>
+                      </select>
+                    </div>
 
-                {/* Main Topic Name */}
-                <div className="md:col-span-2">
-                  <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5 opacity-80">
-                    Main Topic (Syllabus Foundation)
-                  </label>
-                  <input
-                    type="text"
-                    value={formTopic}
-                    onChange={(e) => setFormTopic(e.target.value)}
-                    placeholder="e.g. Operating Systems: Deadlocks & Process Synchronization"
-                    className={`w-full px-3.5 py-2.5 rounded-xl text-sm border focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
-                      isDark ? 'bg-white/5 border-white/15 text-white' : 'bg-slate-50 border-slate-300'
-                    }`}
-                  />
-                </div>
+                    {/* Main Topic Name */}
+                    <div className="md:col-span-2">
+                      <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5 opacity-80">
+                        Main Topic (Syllabus Foundation)
+                      </label>
+                      <input
+                        type="text"
+                        value={formTopic}
+                        onChange={(e) => setFormTopic(e.target.value)}
+                        placeholder="e.g. Operating Systems: Deadlocks & Process Synchronization"
+                        className={`w-full px-3.5 py-2.5 rounded-xl text-sm border focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
+                          isDark ? 'bg-white/5 border-white/15 text-white' : 'bg-slate-50 border-slate-300'
+                        }`}
+                      />
+                    </div>
 
-                {/* Topics to Cover / Scope Range */}
-                <div className="md:col-span-2">
-                  <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5 opacity-80">
-                    Topics to Cover / Scope ("Where to where it needs to cover")
-                  </label>
-                  <textarea
-                    rows={2}
-                    value={formCoverage}
-                    onChange={(e) => setFormCoverage(e.target.value)}
-                    placeholder="Describe specific bounds e.g. From Banker's Algorithm and Semaphore Mutex to Peterson's solution, memory paging, and deadlock recovery"
-                    className={`w-full px-3.5 py-2 rounded-xl text-sm border focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
-                      isDark ? 'bg-white/5 border-white/15 text-white' : 'bg-slate-50 border-slate-300'
-                    }`}
-                  />
-                </div>
+                    {/* Topics to Cover / Scope Range */}
+                    <div className="md:col-span-2">
+                      <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5 opacity-80">
+                        Topics to Cover / Scope ("Where to where it needs to cover")
+                      </label>
+                      <textarea
+                        rows={2}
+                        value={formCoverage}
+                        onChange={(e) => setFormCoverage(e.target.value)}
+                        placeholder="Describe specific bounds e.g. From Banker's Algorithm and Semaphore Mutex to Peterson's solution, memory paging, and deadlock recovery"
+                        className={`w-full px-3.5 py-2 rounded-xl text-sm border focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
+                          isDark ? 'bg-white/5 border-white/15 text-white' : 'bg-slate-50 border-slate-300'
+                        }`}
+                      />
+                    </div>
 
-                {/* Subtopics */}
-                <div className="md:col-span-2">
-                  <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5 opacity-80">
-                    Subtopics (Comma-separated for balanced distribution across modules)
-                  </label>
-                  <input
-                    type="text"
-                    value={formSubtopics}
-                    onChange={(e) => setFormSubtopics(e.target.value)}
-                    placeholder="e.g. Coffman Conditions, Safe State Calculation, Mutex vs Semaphore, Thrashing, Page Replacement"
-                    className={`w-full px-3.5 py-2.5 rounded-xl text-sm border focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
-                      isDark ? 'bg-white/5 border-white/15 text-white' : 'bg-slate-50 border-slate-300'
-                    }`}
-                  />
-                </div>
+                    {/* Subtopics */}
+                    <div className="md:col-span-2">
+                      <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5 opacity-80">
+                        Subtopics (Comma-separated for balanced distribution across modules)
+                      </label>
+                      <input
+                        type="text"
+                        value={formSubtopics}
+                        onChange={(e) => setFormSubtopics(e.target.value)}
+                        placeholder="e.g. Coffman Conditions, Safe State Calculation, Mutex vs Semaphore, Thrashing, Page Replacement"
+                        className={`w-full px-3.5 py-2.5 rounded-xl text-sm border focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
+                          isDark ? 'bg-white/5 border-white/15 text-white' : 'bg-slate-50 border-slate-300'
+                        }`}
+                      />
+                    </div>
 
-                {/* Branch, Section, Year */}
-                <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5 opacity-80">
-                    Target Branch
-                  </label>
-                  <select
-                    value={formBranch}
-                    onChange={(e) => setFormBranch(e.target.value)}
-                    className={`w-full px-3.5 py-2.5 rounded-xl text-sm border focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
-                      isDark ? 'bg-slate-900 border-white/15 text-white' : 'bg-slate-50 border-slate-300'
-                    }`}
-                  >
-                    <option value="Computer Science & Engineering">Computer Science & Engineering</option>
-                    <option value="Artificial Intelligence & ML">Artificial Intelligence & ML</option>
-                    <option value="Electronics & Comm. Eng">Electronics & Comm. Eng</option>
-                    <option value="Information Technology">Information Technology</option>
-                    <option value="Mechanical Engineering">Mechanical Engineering</option>
-                    <option value="Electrical & Electronics Eng">Electrical & Electronics Eng</option>
-                    <option value="Civil Engineering">Civil Engineering</option>
-                  </select>
-                </div>
+                    {/* Branch, Section, Year */}
+                    <div>
+                      <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5 opacity-80">
+                        Target Branch
+                      </label>
+                      <select
+                        value={formBranch}
+                        onChange={(e) => setFormBranch(e.target.value)}
+                        className={`w-full px-3.5 py-2.5 rounded-xl text-sm border focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
+                          isDark ? 'bg-slate-900 border-white/15 text-white' : 'bg-slate-50 border-slate-300'
+                        }`}
+                      >
+                        <option value="Computer Science & Engineering">Computer Science & Engineering</option>
+                        <option value="Artificial Intelligence & ML">Artificial Intelligence & ML</option>
+                        <option value="Electronics & Comm. Eng">Electronics & Comm. Eng</option>
+                        <option value="Information Technology">Information Technology</option>
+                        <option value="Mechanical Engineering">Mechanical Engineering</option>
+                        <option value="Electrical & Electronics Eng">Electrical & Electronics Eng</option>
+                        <option value="Civil Engineering">Civil Engineering</option>
+                      </select>
+                    </div>
 
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5 opacity-80">
-                      Section
-                    </label>
-                    <select
-                      value={formSection}
-                      onChange={(e) => setFormSection(e.target.value)}
-                      className={`w-full px-3.5 py-2.5 rounded-xl text-sm border focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
-                        isDark ? 'bg-slate-900 border-white/15 text-white' : 'bg-slate-50 border-slate-300'
-                      }`}
-                    >
-                      <option value="Section A">Section A</option>
-                      <option value="Section B">Section B</option>
-                      <option value="Section C">Section C</option>
-                      <option value="All Sections">All Sections</option>
-                    </select>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5 opacity-80">
+                          Section
+                        </label>
+                        <select
+                          value={formSection}
+                          onChange={(e) => setFormSection(e.target.value)}
+                          className={`w-full px-3.5 py-2.5 rounded-xl text-sm border focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
+                            isDark ? 'bg-slate-900 border-white/15 text-white' : 'bg-slate-50 border-slate-300'
+                          }`}
+                        >
+                          <option value="Section A">Section A</option>
+                          <option value="Section B">Section B</option>
+                          <option value="Section C">Section C</option>
+                          <option value="All Sections">All Sections</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5 opacity-80">
+                          Year
+                        </label>
+                        <select
+                          value={formYear}
+                          onChange={(e) => setFormYear(e.target.value)}
+                          className={`w-full px-3.5 py-2.5 rounded-xl text-sm border focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
+                            isDark ? 'bg-slate-900 border-white/15 text-white' : 'bg-slate-50 border-slate-300'
+                          }`}
+                        >
+                          <option value="1st Year">1st Year</option>
+                          <option value="2nd Year">2nd Year</option>
+                          <option value="3rd Year">3rd Year</option>
+                          <option value="4th Year">4th Year</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* Difficulty & Generation Mode */}
+                    <div>
+                      <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5 opacity-80">
+                        Difficulty Level
+                      </label>
+                      <select
+                        value={formDifficulty}
+                        onChange={(e) => setFormDifficulty(e.target.value as ExamDifficulty)}
+                        className={`w-full px-3.5 py-2.5 rounded-xl text-sm border focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
+                          isDark ? 'bg-slate-900 border-white/15 text-white' : 'bg-slate-50 border-slate-300'
+                        }`}
+                      >
+                        <option value="Easy">Easy (Foundational & Definitions)</option>
+                        <option value="Normal">Normal (Conceptual & Basic Application)</option>
+                        <option value="Medium">Medium (Multi-step Reasoning & Scenarios)</option>
+                        <option value="Hard">Hard (Deep Reasoning, Debugging & Synthesis)</option>
+                        <option value="AI Choice">AI Choice (Auto-Balanced: 20% Easy, 25% Norm, 35% Med, 20% Hard)</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5 opacity-80">
+                        Generation Mode
+                      </label>
+                      <select
+                        value={formGenerationMode}
+                        onChange={(e) => setFormGenerationMode(e.target.value)}
+                        className={`w-full px-3.5 py-2.5 rounded-xl text-sm border focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
+                          isDark ? 'bg-slate-900 border-white/15 text-white' : 'bg-slate-50 border-slate-300'
+                        }`}
+                      >
+                        <option value="ai_generated">MODE 1: AI Generated (100% Original formulation)</option>
+                        <option value="research_informed">MODE 2: Research Informed (Curriculum & Textbook ground)</option>
+                        <option value="admin_question_bank">MODE 3: Custom / Uploaded Material</option>
+                      </select>
+                    </div>
+
+                    {/* MCQs count, Max Marks, Duration */}
+                    <div className="grid grid-cols-3 gap-3">
+                      <div>
+                        <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5 opacity-80">
+                          No. of MCQs ({formCount})
+                        </label>
+                        <select
+                          value={formCount}
+                          onChange={(e) => {
+                            const val = Number(e.target.value);
+                            setFormCount(val);
+                            setFormMaxMarks(val);
+                          }}
+                          className={`w-full px-3.5 py-2.5 rounded-xl text-sm border focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
+                            isDark ? 'bg-slate-900 border-white/15 text-white' : 'bg-slate-50 border-slate-300'
+                          }`}
+                        >
+                          <option value={5}>5 Questions</option>
+                          <option value={10}>10 Questions</option>
+                          <option value={15}>15 Questions</option>
+                          <option value={20}>20 Questions</option>
+                          <option value={25}>25 Questions</option>
+                          <option value={30}>30 Questions</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5 opacity-80">
+                          Max Marks
+                        </label>
+                        <input
+                          type="number"
+                          min={1}
+                          max={100}
+                          value={formMaxMarks}
+                          onChange={(e) => setFormMaxMarks(Number(e.target.value))}
+                          className={`w-full px-3.5 py-2.5 rounded-xl text-sm border focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
+                            isDark ? 'bg-white/5 border-white/15 text-white' : 'bg-slate-50 border-slate-300'
+                          }`}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5 opacity-80">
+                          Duration (Mins)
+                        </label>
+                        <input
+                          type="number"
+                          min={5}
+                          max={180}
+                          value={formDuration}
+                          onChange={(e) => setFormDuration(Number(e.target.value))}
+                          className={`w-full px-3.5 py-2.5 rounded-xl text-sm border focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
+                            isDark ? 'bg-white/5 border-white/15 text-white' : 'bg-slate-50 border-slate-300'
+                          }`}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Additional Instructions */}
+                    <div>
+                      <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5 opacity-80">
+                        Additional Instructions / Custom Focus
+                      </label>
+                      <input
+                        type="text"
+                        value={formAdditionalInstructions}
+                        onChange={(e) => setFormAdditionalInstructions(e.target.value)}
+                        placeholder="e.g. Focus on practical lab scenarios, include code output and debugging"
+                        className={`w-full px-3.5 py-2.5 rounded-xl text-sm border focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
+                          isDark ? 'bg-white/5 border-white/15 text-white' : 'bg-slate-50 border-slate-300'
+                        }`}
+                      />
+                    </div>
                   </div>
-                  <div>
-                    <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5 opacity-80">
-                      Year
-                    </label>
-                    <select
-                      value={formYear}
-                      onChange={(e) => setFormYear(e.target.value)}
-                      className={`w-full px-3.5 py-2.5 rounded-xl text-sm border focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
-                        isDark ? 'bg-slate-900 border-white/15 text-white' : 'bg-slate-50 border-slate-300'
-                      }`}
+
+                  {/* Generate Button */}
+                  <div className="mt-6 flex flex-wrap items-center justify-between gap-4 pt-4 border-t border-white/10">
+                    <div className="text-xs text-indigo-400 font-medium">
+                      {generationNotice || 'Click below to synthesize questions according to Master Prompt.'}
+                    </div>
+
+                    <button
+                      onClick={handleGenerateQuestions}
+                      disabled={isGeneratingAI}
+                      className="px-6 py-3 rounded-xl bg-gradient-to-r from-indigo-500 via-purple-600 to-pink-500 text-white font-bold text-sm shadow-lg shadow-indigo-500/25 hover:opacity-90 transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
                     >
-                      <option value="1st Year">1st Year</option>
-                      <option value="2nd Year">2nd Year</option>
-                      <option value="3rd Year">3rd Year</option>
-                      <option value="4th Year">4th Year</option>
-                    </select>
+                      {isGeneratingAI ? (
+                        <>
+                          <RefreshCw className="w-4 h-4 animate-spin" />
+                          <span>Synthesizing Exam Paper...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles className="w-4 h-4" />
+                          <span>Generate {formCount} MCQs with Master AI Engine</span>
+                        </>
+                      )}
+                    </button>
                   </div>
                 </div>
+              )}
 
-                {/* Difficulty & Generation Mode */}
-                <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5 opacity-80">
-                    Difficulty Level
-                  </label>
-                  <select
-                    value={formDifficulty}
-                    onChange={(e) => setFormDifficulty(e.target.value as ExamDifficulty)}
-                    className={`w-full px-3.5 py-2.5 rounded-xl text-sm border focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
-                      isDark ? 'bg-slate-900 border-white/15 text-white' : 'bg-slate-50 border-slate-300'
+              {/* CREATION MODE 2: PDF UPLOAD & QUESTION GENERATION WITH DIFFICULTY LEVELS */}
+              {creationMode === 'pdf_upload' && (
+                <div className="space-y-6">
+                  {/* Upload Box */}
+                  <div
+                    className={`p-6 rounded-2xl border-2 border-dashed transition-all ${
+                      pdfFile
+                        ? 'border-emerald-500/50 bg-emerald-500/5'
+                        : isDark
+                        ? 'border-white/20 bg-white/5 hover:border-indigo-500/50'
+                        : 'border-slate-300 bg-slate-50 hover:border-indigo-500'
                     }`}
                   >
-                    <option value="Easy">Easy (Foundational & Definitions)</option>
-                    <option value="Normal">Normal (Conceptual & Basic Application)</option>
-                    <option value="Medium">Medium (Multi-step Reasoning & Scenarios)</option>
-                    <option value="Hard">Hard (Deep Reasoning, Debugging & Synthesis)</option>
-                    <option value="AI Choice">AI Choice (Auto-Balanced: 20% Easy, 25% Norm, 35% Med, 20% Hard)</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5 opacity-80">
-                    Generation Mode
-                  </label>
-                  <select
-                    value={formGenerationMode}
-                    onChange={(e) => setFormGenerationMode(e.target.value)}
-                    className={`w-full px-3.5 py-2.5 rounded-xl text-sm border focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
-                      isDark ? 'bg-slate-900 border-white/15 text-white' : 'bg-slate-50 border-slate-300'
-                    }`}
-                  >
-                    <option value="ai_generated">MODE 1: AI Generated (100% Original formulation)</option>
-                    <option value="research_informed">MODE 2: Research Informed (Curriculum & Textbook ground)</option>
-                    <option value="admin_question_bank">MODE 3: Custom / Uploaded Material</option>
-                  </select>
-                </div>
-
-                {/* MCQs count, Max Marks, Duration */}
-                <div className="grid grid-cols-3 gap-3">
-                  <div>
-                    <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5 opacity-80">
-                      No. of MCQs ({formCount})
-                    </label>
-                    <select
-                      value={formCount}
-                      onChange={(e) => {
-                        const val = Number(e.target.value);
-                        setFormCount(val);
-                        setFormMaxMarks(val);
-                      }}
-                      className={`w-full px-3.5 py-2.5 rounded-xl text-sm border focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
-                        isDark ? 'bg-slate-900 border-white/15 text-white' : 'bg-slate-50 border-slate-300'
-                      }`}
-                    >
-                      <option value={5}>5 Questions</option>
-                      <option value={10}>10 Questions</option>
-                      <option value={15}>15 Questions</option>
-                      <option value={20}>20 Questions</option>
-                      <option value={25}>25 Questions</option>
-                      <option value={30}>30 Questions</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5 opacity-80">
-                      Max Marks
-                    </label>
                     <input
-                      type="number"
-                      min={1}
-                      max={100}
-                      value={formMaxMarks}
-                      onChange={(e) => setFormMaxMarks(Number(e.target.value))}
-                      className={`w-full px-3.5 py-2.5 rounded-xl text-sm border focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
-                        isDark ? 'bg-white/5 border-white/15 text-white' : 'bg-slate-50 border-slate-300'
-                      }`}
+                      type="file"
+                      id="pdfUploadInput"
+                      accept=".pdf,.txt,.md"
+                      onChange={handlePdfFileUpload}
+                      className="hidden"
                     />
+
+                    {!pdfFile ? (
+                      <label
+                        htmlFor="pdfUploadInput"
+                        className="flex flex-col items-center justify-center text-center cursor-pointer py-6"
+                      >
+                        <div className="w-14 h-14 rounded-2xl bg-indigo-500/20 text-indigo-400 flex items-center justify-center mb-3 border border-indigo-500/30">
+                          <Upload className="w-7 h-7" />
+                        </div>
+                        <h3 className="text-base font-bold mb-1">
+                          Click to Browse or Drag & Drop Syllabus / Material PDF
+                        </h3>
+                        <p className="text-xs opacity-70 max-w-md">
+                          Upload course syllabus, lecture slides, unit notes, or textbook chapters (.pdf, .txt, .md).
+                          The AI will extract all topics and formulate rigorous MCQs.
+                        </p>
+                        <span className="mt-4 px-4 py-2 rounded-xl bg-indigo-600 text-white font-semibold text-xs shadow-md shadow-indigo-600/30">
+                          Select PDF Document
+                        </span>
+                      </label>
+                    ) : (
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                        <div className="flex items-center gap-3">
+                          <div className="w-12 h-12 rounded-2xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0 border border-emerald-500/30">
+                            <FileText className="w-6 h-6" />
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <h4 className="font-bold text-sm">{pdfFileName}</h4>
+                              <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[10px] font-mono font-bold">
+                                {isExtractingPdf ? 'EXTRACTING TEXT...' : 'PROCESSED & READY'}
+                              </span>
+                            </div>
+                            <p className="text-xs opacity-75 mt-0.5">
+                              Size: <strong>{pdfFileSize}</strong> • Pages: <strong>{pdfPages}</strong> • Extracted Characters: <strong>{pdfCharCount.toLocaleString()}</strong>
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 shrink-0">
+                          {pdfCharCount > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => setShowPdfTextPreview(!showPdfTextPreview)}
+                              className="px-3 py-1.5 rounded-xl border border-white/15 hover:bg-white/10 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                            >
+                              <Eye className="w-3.5 h-3.5" />
+                              <span>{showPdfTextPreview ? 'Hide Text' : 'Preview Extracted Text'}</span>
+                            </button>
+                          )}
+                          <label
+                            htmlFor="pdfUploadInput"
+                            className="px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/15 text-xs font-semibold transition-colors cursor-pointer"
+                          >
+                            Change PDF
+                          </label>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Collapsible Extracted Text Preview Drawer */}
+                    {showPdfTextPreview && pdfText && (
+                      <div className="mt-4 pt-4 border-t border-white/10">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-xs font-semibold opacity-80 uppercase tracking-wider">
+                            Extracted Content from {pdfFileName} ({pdfCharCount.toLocaleString()} characters)
+                          </span>
+                          <span className="text-[10px] opacity-60">First 3,000 characters shown</span>
+                        </div>
+                        <div className="max-h-48 overflow-y-auto p-3.5 rounded-xl bg-black/40 border border-white/10 text-xs font-mono opacity-85 whitespace-pre-wrap leading-relaxed">
+                          {pdfText.slice(0, 3000)}
+                          {pdfText.length > 3000 && '\n\n... [remaining characters preserved for AI question generation]'}
+                        </div>
+                      </div>
+                    )}
                   </div>
+
+                  {/* Difficulty Level Configurator (Feature 1 Requirement) */}
                   <div>
-                    <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5 opacity-80">
-                      Duration (Mins)
-                    </label>
-                    <input
-                      type="number"
-                      min={5}
-                      max={180}
-                      value={formDuration}
-                      onChange={(e) => setFormDuration(Number(e.target.value))}
-                      className={`w-full px-3.5 py-2.5 rounded-xl text-sm border focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
-                        isDark ? 'bg-white/5 border-white/15 text-white' : 'bg-slate-50 border-slate-300'
-                      }`}
-                    />
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="block text-xs font-semibold uppercase tracking-wider opacity-90">
+                        Target Question Difficulty Level
+                      </label>
+                      <span className="text-xs text-indigo-400 font-medium">
+                        Controls cognitive complexity of questions generated from PDF
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-5 gap-2.5">
+                      {[
+                        {
+                          level: 'Easy' as ExamDifficulty,
+                          title: 'Easy Level',
+                          desc: 'Definitions, terminology, and direct principles from PDF',
+                        },
+                        {
+                          level: 'Normal' as ExamDifficulty,
+                          title: 'Normal Level',
+                          desc: 'Core conceptual understanding & mechanism explanation',
+                        },
+                        {
+                          level: 'Medium' as ExamDifficulty,
+                          title: 'Medium Level',
+                          desc: 'Multi-step deduction, scenarios & applied problems',
+                        },
+                        {
+                          level: 'Hard' as ExamDifficulty,
+                          title: 'Hard Level',
+                          desc: 'Deep analytical synthesis, edge cases & diagnostic reasoning',
+                        },
+                        {
+                          level: 'AI Choice' as ExamDifficulty,
+                          title: 'AI Choice (Mixed)',
+                          desc: 'Curriculum-balanced: 20% Easy, 25% Norm, 35% Med, 20% Hard',
+                        },
+                      ].map((item) => {
+                        const isSelected = pdfDifficulty === item.level;
+                        return (
+                          <button
+                            key={item.level}
+                            type="button"
+                            onClick={() => setPdfDifficulty(item.level)}
+                            className={`p-3 rounded-2xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
+                              isSelected
+                                ? 'bg-indigo-600/20 border-indigo-500 ring-2 ring-indigo-500/50 text-white'
+                                : isDark
+                                ? 'bg-white/5 border-white/10 hover:border-white/20 text-slate-300'
+                                : 'bg-slate-50 border-slate-200 hover:border-slate-300 text-slate-700'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="font-bold text-xs">{item.title}</span>
+                              {isSelected && <Check className="w-3.5 h-3.5 text-indigo-400" />}
+                            </div>
+                            <p className="text-[11px] opacity-75 leading-snug">{item.desc}</p>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* PDF Assessment Settings Grid */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    {/* Exam Title */}
+                    <div className="md:col-span-2">
+                      <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5 opacity-80">
+                        Assessment Title (From PDF)
+                      </label>
+                      <input
+                        type="text"
+                        value={pdfExamTitle}
+                        onChange={(e) => setPdfExamTitle(e.target.value)}
+                        placeholder="e.g. Operating Systems: Kernel Synchronization & Semaphores"
+                        className={`w-full px-3.5 py-2.5 rounded-xl text-sm border focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
+                          isDark ? 'bg-white/5 border-white/15 text-white' : 'bg-slate-50 border-slate-300'
+                        }`}
+                      />
+                    </div>
+
+                    {/* Exam Code */}
+                    <div>
+                      <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5 opacity-80">
+                        Exam Code
+                      </label>
+                      <input
+                        type="text"
+                        value={pdfExamCode}
+                        onChange={(e) => setPdfExamCode(e.target.value.toUpperCase())}
+                        placeholder="e.g. PDF-CSE-201"
+                        className={`w-full px-3.5 py-2.5 rounded-xl text-sm font-mono border focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
+                          isDark ? 'bg-white/5 border-white/15 text-white' : 'bg-slate-50 border-slate-300'
+                        }`}
+                      />
+                    </div>
+
+                    {/* Question Count */}
+                    <div>
+                      <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5 opacity-80">
+                        Number of Questions
+                      </label>
+                      <select
+                        value={pdfQuestionCount}
+                        onChange={(e) => {
+                          const val = Number(e.target.value);
+                          setPdfQuestionCount(val);
+                          setPdfMaxMarks(val);
+                        }}
+                        className={`w-full px-3.5 py-2.5 rounded-xl text-sm border focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
+                          isDark ? 'bg-slate-900 border-white/15 text-white' : 'bg-slate-50 border-slate-300'
+                        }`}
+                      >
+                        <option value={5}>5 Questions</option>
+                        <option value={10}>10 Questions</option>
+                        <option value={15}>15 Questions</option>
+                        <option value={20}>20 Questions</option>
+                        <option value={25}>25 Questions</option>
+                        <option value={30}>30 Questions</option>
+                      </select>
+                    </div>
+
+                    {/* Duration */}
+                    <div>
+                      <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5 opacity-80">
+                        Duration (Minutes)
+                      </label>
+                      <input
+                        type="number"
+                        min={5}
+                        max={180}
+                        value={pdfDuration}
+                        onChange={(e) => setPdfDuration(Number(e.target.value))}
+                        className={`w-full px-3.5 py-2.5 rounded-xl text-sm border focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
+                          isDark ? 'bg-white/5 border-white/15 text-white' : 'bg-slate-50 border-slate-300'
+                        }`}
+                      />
+                    </div>
+
+                    {/* Max Marks */}
+                    <div>
+                      <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5 opacity-80">
+                        Max Marks
+                      </label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={100}
+                        value={pdfMaxMarks}
+                        onChange={(e) => setPdfMaxMarks(Number(e.target.value))}
+                        className={`w-full px-3.5 py-2.5 rounded-xl text-sm border focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
+                          isDark ? 'bg-white/5 border-white/15 text-white' : 'bg-slate-50 border-slate-300'
+                        }`}
+                      />
+                    </div>
+
+                    {/* Target Branch */}
+                    <div>
+                      <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5 opacity-80">
+                        Target Branch
+                      </label>
+                      <select
+                        value={formBranch}
+                        onChange={(e) => setFormBranch(e.target.value)}
+                        className={`w-full px-3.5 py-2.5 rounded-xl text-sm border focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
+                          isDark ? 'bg-slate-900 border-white/15 text-white' : 'bg-slate-50 border-slate-300'
+                        }`}
+                      >
+                        <option value="Computer Science & Engineering">Computer Science & Engineering</option>
+                        <option value="Artificial Intelligence & ML">Artificial Intelligence & ML</option>
+                        <option value="Electronics & Comm. Eng">Electronics & Comm. Eng</option>
+                        <option value="Information Technology">Information Technology</option>
+                        <option value="Mechanical Engineering">Mechanical Engineering</option>
+                        <option value="Electrical & Electronics Eng">Electrical & Electronics Eng</option>
+                        <option value="Civil Engineering">Civil Engineering</option>
+                      </select>
+                    </div>
+
+                    {/* Section & Year */}
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5 opacity-80">
+                          Section
+                        </label>
+                        <select
+                          value={formSection}
+                          onChange={(e) => setFormSection(e.target.value)}
+                          className={`w-full px-3.5 py-2.5 rounded-xl text-sm border focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
+                            isDark ? 'bg-slate-900 border-white/15 text-white' : 'bg-slate-50 border-slate-300'
+                          }`}
+                        >
+                          <option value="Section A">Section A</option>
+                          <option value="Section B">Section B</option>
+                          <option value="Section C">Section C</option>
+                          <option value="All Sections">All Sections</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5 opacity-80">
+                          Year
+                        </label>
+                        <select
+                          value={formYear}
+                          onChange={(e) => setFormYear(e.target.value)}
+                          className={`w-full px-3.5 py-2.5 rounded-xl text-sm border focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
+                            isDark ? 'bg-slate-900 border-white/15 text-white' : 'bg-slate-50 border-slate-300'
+                          }`}
+                        >
+                          <option value="1st Year">1st Year</option>
+                          <option value="2nd Year">2nd Year</option>
+                          <option value="3rd Year">3rd Year</option>
+                          <option value="4th Year">4th Year</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* Specific Focus in PDF */}
+                    <div>
+                      <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5 opacity-80">
+                        Specific Focus / Chapter Bounds
+                      </label>
+                      <input
+                        type="text"
+                        value={pdfSpecificFocus}
+                        onChange={(e) => setPdfSpecificFocus(e.target.value)}
+                        placeholder="e.g. Focus on Section 3 memory paging & TLB cache"
+                        className={`w-full px-3.5 py-2.5 rounded-xl text-sm border focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
+                          isDark ? 'bg-white/5 border-white/15 text-white' : 'bg-slate-50 border-slate-300'
+                        }`}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Generate Button for PDF */}
+                  <div className="pt-4 border-t border-white/10 flex flex-wrap items-center justify-between gap-4">
+                    <div className="text-xs text-indigo-400 font-medium">
+                      {pdfExtractionNotice || 'Upload a PDF syllabus or notes above to generate questions.'}
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={handleGenerateQuestionsFromPdf}
+                      disabled={isGeneratingAI || !pdfText.trim()}
+                      className="px-6 py-3 rounded-xl bg-gradient-to-r from-purple-600 via-pink-600 to-indigo-600 text-white font-bold text-sm shadow-lg shadow-purple-600/30 hover:opacity-95 transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                    >
+                      {isGeneratingAI ? (
+                        <>
+                          <RefreshCw className="w-4 h-4 animate-spin" />
+                          <span>Generating from PDF ({pdfDifficulty})...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles className="w-4 h-4" />
+                          <span>Generate {pdfQuestionCount} MCQs from PDF ({pdfDifficulty} Level)</span>
+                        </>
+                      )}
+                    </button>
                   </div>
                 </div>
+              )}
 
-                {/* Additional Instructions */}
-                <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5 opacity-80">
-                    Additional Instructions / Custom Focus
-                  </label>
-                  <input
-                    type="text"
-                    value={formAdditionalInstructions}
-                    onChange={(e) => setFormAdditionalInstructions(e.target.value)}
-                    placeholder="e.g. Focus on practical lab scenarios, include code output and debugging"
-                    className={`w-full px-3.5 py-2.5 rounded-xl text-sm border focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
-                      isDark ? 'bg-white/5 border-white/15 text-white' : 'bg-slate-50 border-slate-300'
+              {/* CREATION MODE 3: CUSTOM TEST BUILDER (MANUAL QUESTION AUTHORING & APPROVAL) */}
+              {creationMode === 'custom_admin' && (
+                <div className="space-y-6">
+                  {/* Test Details Header */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="md:col-span-2">
+                      <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5 opacity-80">
+                        Custom Assessment Title
+                      </label>
+                      <input
+                        type="text"
+                        value={formTitle}
+                        onChange={(e) => setFormTitle(e.target.value)}
+                        placeholder="e.g. Advanced Operating Systems Faculty Custom Examination"
+                        className={`w-full px-3.5 py-2.5 rounded-xl text-sm border focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
+                          isDark ? 'bg-white/5 border-white/15 text-white' : 'bg-slate-50 border-slate-300'
+                        }`}
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5 opacity-80">
+                        Exam Code
+                      </label>
+                      <input
+                        type="text"
+                        value={formExamCode}
+                        onChange={(e) => setFormExamCode(e.target.value.toUpperCase())}
+                        placeholder="e.g. CSE-CUSTOM-301"
+                        className={`w-full px-3.5 py-2.5 rounded-xl text-sm font-mono border focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
+                          isDark ? 'bg-white/5 border-white/15 text-white' : 'bg-slate-50 border-slate-300'
+                        }`}
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5 opacity-80">
+                        Subject / Domain
+                      </label>
+                      <input
+                        type="text"
+                        value={formSubject}
+                        onChange={(e) => setFormSubject(e.target.value)}
+                        placeholder="e.g. Computer Science & Engineering"
+                        className={`w-full px-3.5 py-2.5 rounded-xl text-sm border focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
+                          isDark ? 'bg-white/5 border-white/15 text-white' : 'bg-slate-50 border-slate-300'
+                        }`}
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5 opacity-80">
+                        Target Branch
+                      </label>
+                      <select
+                        value={formBranch}
+                        onChange={(e) => setFormBranch(e.target.value)}
+                        className={`w-full px-3.5 py-2.5 rounded-xl text-sm border focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
+                          isDark ? 'bg-slate-900 border-white/15 text-white' : 'bg-slate-50 border-slate-300'
+                        }`}
+                      >
+                        <option value="Computer Science & Engineering">Computer Science & Engineering</option>
+                        <option value="Artificial Intelligence & ML">Artificial Intelligence & ML</option>
+                        <option value="Electronics & Comm. Eng">Electronics & Comm. Eng</option>
+                        <option value="Information Technology">Information Technology</option>
+                        <option value="Mechanical Engineering">Mechanical Engineering</option>
+                        <option value="Electrical & Electronics Eng">Electrical & Electronics Eng</option>
+                        <option value="Civil Engineering">Civil Engineering</option>
+                      </select>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5 opacity-80">
+                          Duration (Mins)
+                        </label>
+                        <input
+                          type="number"
+                          min={5}
+                          max={180}
+                          value={formDuration}
+                          onChange={(e) => setFormDuration(Number(e.target.value))}
+                          className={`w-full px-3.5 py-2.5 rounded-xl text-sm border focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
+                            isDark ? 'bg-white/5 border-white/15 text-white' : 'bg-slate-50 border-slate-300'
+                          }`}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5 opacity-80">
+                          Total Marks
+                        </label>
+                        <input
+                          type="number"
+                          min={1}
+                          max={100}
+                          value={formMaxMarks || generatedQuestions.length}
+                          onChange={(e) => setFormMaxMarks(Number(e.target.value))}
+                          className={`w-full px-3.5 py-2.5 rounded-xl text-sm border focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
+                            isDark ? 'bg-white/5 border-white/15 text-white' : 'bg-slate-50 border-slate-300'
+                          }`}
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Custom Test Action Toolbar & Live Approval Counter */}
+                  <div
+                    className={`p-4 rounded-2xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+                      isDark ? 'bg-emerald-950/20 border-emerald-500/30' : 'bg-emerald-50/70 border-emerald-200'
                     }`}
-                  />
-                </div>
-              </div>
+                  >
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-sm">Faculty Test Questions Bank</span>
+                        <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[10px] font-mono font-bold">
+                          {generatedQuestions.filter((q) => q.isApproved).length} / {generatedQuestions.length} APPROVED FOR TEST
+                        </span>
+                      </div>
+                      <p className="text-xs opacity-75 mt-0.5">
+                        Author your questions manually below, review each question, and approve them for inclusion in the official test.
+                      </p>
+                    </div>
 
-              {/* Generate Button */}
-              <div className="mt-6 flex flex-wrap items-center justify-between gap-4 pt-4 border-t border-white/10">
-                <div className="text-xs text-indigo-400 font-medium">
-                  {generationNotice || 'Click below to synthesize questions according to Master Prompt.'}
-                </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={handleOpenAddQuestionModal}
+                        className="px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:opacity-90 text-white font-bold text-xs shadow-md shadow-emerald-600/30 flex items-center gap-1.5 transition-all cursor-pointer"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>Author / Add Question</span>
+                      </button>
 
-                <button
-                  onClick={handleGenerateQuestions}
-                  disabled={isGeneratingAI}
-                  className="px-6 py-3 rounded-xl bg-gradient-to-r from-indigo-500 via-purple-600 to-pink-500 text-white font-bold text-sm shadow-lg shadow-indigo-500/25 hover:opacity-90 transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
-                >
-                  {isGeneratingAI ? (
-                    <>
-                      <RefreshCw className="w-4 h-4 animate-spin" />
-                      <span>Synthesizing Exam Paper...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Sparkles className="w-4 h-4" />
-                      <span>Generate {formCount} MCQs with Master AI Engine</span>
-                    </>
+                      {generatedQuestions.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={handleApproveAllQuestions}
+                          className="px-3.5 py-2 rounded-xl border border-emerald-500/40 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                        >
+                          <CheckCheck className="w-3.5 h-3.5 text-emerald-400" />
+                          <span>Approve All</span>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Empty state if no questions yet in Custom Test */}
+                  {generatedQuestions.length === 0 && (
+                    <div
+                      className={`p-8 rounded-2xl border text-center ${
+                        isDark ? 'bg-white/5 border-white/10' : 'bg-slate-50 border-slate-200'
+                      }`}
+                    >
+                      <div className="w-12 h-12 rounded-2xl bg-indigo-500/20 text-indigo-400 flex items-center justify-center mx-auto mb-3 border border-indigo-500/30">
+                        <Edit3 className="w-6 h-6" />
+                      </div>
+                      <h4 className="font-bold text-base mb-1">No Questions Added to this Test Yet</h4>
+                      <p className="text-xs opacity-70 max-w-md mx-auto mb-4">
+                        You can manually author your own questions one by one with options, correct answer keys, and explanations, or generate questions via AI Topic or Uploaded PDF and review & approve them here!
+                      </p>
+                      <div className="flex flex-wrap items-center justify-center gap-2.5">
+                        <button
+                          type="button"
+                          onClick={handleOpenAddQuestionModal}
+                          className="px-5 py-2.5 rounded-xl bg-emerald-600 text-white font-bold text-xs shadow-md shadow-emerald-600/30 flex items-center gap-1.5 cursor-pointer"
+                        >
+                          <Plus className="w-4 h-4" />
+                          <span>Author First Question</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setCreationMode('pdf_upload')}
+                          className="px-4 py-2.5 rounded-xl border border-white/20 hover:bg-white/10 text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
+                        >
+                          <FileUp className="w-3.5 h-3.5 text-purple-400" />
+                          <span>Generate from PDF instead</span>
+                        </button>
+                      </div>
+                    </div>
                   )}
-                </button>
-              </div>
+                </div>
+              )}
             </div>
 
             {/* FACULTY REVIEW SUMMARY & QUESTIONS PREVIEW AREA (Section 48 & 49) */}
             {generatedQuestions.length > 0 && (
               <div className="space-y-6">
-                {/* Faculty Review Summary Card (Master Prompt Section 48) */}
+                {/* Faculty Review Summary Card (Master Prompt Section 48 & Approval Workflow) */}
                 <div
                   className={`rounded-3xl p-6 sm:p-7 backdrop-blur-xl border ${
                     isDark ? 'bg-gradient-to-br from-indigo-950/40 via-purple-950/20 to-slate-900/60 border-indigo-500/30' : 'bg-indigo-50/70 border-indigo-200'
@@ -1227,34 +2122,53 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                 >
                   <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-5 pb-4 border-b border-white/10">
                     <div>
-                      <div className="flex items-center gap-2.5 mb-1">
+                      <div className="flex items-center gap-2.5 mb-1 flex-wrap">
                         <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
                         <h3 className="font-extrabold text-sm sm:text-base tracking-wide uppercase">
-                          Faculty Question Generation Summary
+                          Faculty Questions Review & Approval
                         </h3>
-                        <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[10px] font-mono font-bold">
-                          READY FOR FACULTY REVIEW
+                        <span
+                          className={`px-2.5 py-0.5 rounded-full border text-[10px] font-mono font-bold ${
+                            generatedQuestions.filter((q) => q.isApproved).length === generatedQuestions.length
+                              ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+                              : 'bg-amber-500/20 text-amber-400 border-amber-500/30'
+                          }`}
+                        >
+                          {generatedQuestions.filter((q) => q.isApproved).length} / {generatedQuestions.length} APPROVED FOR TEST
                         </span>
                       </div>
                       <p className="text-xs opacity-75">
-                        Subject: <strong className="text-white">{formSubject}</strong> • Main Topic: <strong className="text-white">{formTopic}</strong> • Questions: <strong>{generatedQuestions.length}</strong> • Max Marks: <strong>{formMaxMarks || generatedQuestions.length}</strong>
+                        Subject: <strong className="text-white">{creationMode === 'pdf_upload' ? pdfSubject : formSubject}</strong> • Topic: <strong className="text-white">{creationMode === 'pdf_upload' ? (pdfExamTitle || pdfFileName) : formTopic}</strong> • Questions: <strong>{generatedQuestions.length}</strong> • Max Marks: <strong>{(creationMode === 'pdf_upload' ? pdfMaxMarks : formMaxMarks) || generatedQuestions.length}</strong>
                       </p>
                     </div>
 
-                    <div className="flex items-center gap-2.5">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <button
-                        onClick={handleAddCustomQuestion}
+                        type="button"
+                        onClick={handleOpenAddQuestionModal}
                         className="px-3.5 py-2 rounded-xl border border-white/20 hover:bg-white/10 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
                       >
                         <Plus className="w-3.5 h-3.5" />
-                        <span>Add Question</span>
+                        <span>Author Question</span>
                       </button>
+
                       <button
+                        type="button"
+                        onClick={handleApproveAllQuestions}
+                        className="px-3.5 py-2 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                        title="Approve all questions in this batch for the test"
+                      >
+                        <CheckCheck className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>Approve All</span>
+                      </button>
+
+                      <button
+                        type="button"
                         onClick={handlePublishExam}
                         className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs sm:text-sm shadow-lg shadow-emerald-600/30 flex items-center gap-1.5 transition-all cursor-pointer"
                       >
                         <CheckCircle className="w-4 h-4" />
-                        <span>Approve & Publish Assessment</span>
+                        <span>Approve & Publish Test</span>
                       </button>
                     </div>
                   </div>
@@ -1315,15 +2229,17 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                       </div>
                     </div>
 
-                    {/* 4. Quality & Security Assurance */}
+                    {/* 4. Approval & Security Status */}
                     <div className={`p-3.5 rounded-2xl border ${isDark ? 'bg-black/30 border-white/10' : 'bg-white border-slate-200'}`}>
                       <div className="font-bold text-[11px] uppercase tracking-wider text-emerald-400 mb-2">
-                        Validation & Security
+                        Approval & Security
                       </div>
                       <div className="space-y-1 text-[11px] opacity-85">
-                        <div className="flex items-center gap-1.5 text-emerald-300">
-                          <Check className="w-3.5 h-3.5" />
-                          <span>0 Duplicate Questions</span>
+                        <div className="flex items-center justify-between">
+                          <span>Faculty Approved:</span>
+                          <span className="font-bold text-emerald-400 font-mono">
+                            {generatedQuestions.filter((q) => q.isApproved).length} / {generatedQuestions.length}
+                          </span>
                         </div>
                         <div className="flex items-center gap-1.5 text-emerald-300">
                           <Check className="w-3.5 h-3.5" />
@@ -1331,108 +2247,471 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                         </div>
                         <div className="flex items-center gap-1.5 text-emerald-300">
                           <Check className="w-3.5 h-3.5" />
-                          <span>Answer Security Shield Active</span>
+                          <span>Server Answer Security</span>
                         </div>
                         <div className="flex items-center gap-1.5 text-emerald-300">
                           <Check className="w-3.5 h-3.5" />
-                          <span>Student Jumble Ready</span>
+                          <span>Student Jumble Enabled</span>
                         </div>
                       </div>
                     </div>
                   </div>
                 </div>
 
+                {/* Question Filter & Counter Toolbar */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold uppercase tracking-wider opacity-80">Filter:</span>
+                    <div className="flex items-center gap-1 p-1 rounded-xl bg-white/5 border border-white/10 text-xs">
+                      <button
+                        type="button"
+                        onClick={() => setQuestionFilter('all')}
+                        className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
+                          questionFilter === 'all'
+                            ? 'bg-indigo-600 text-white font-bold'
+                            : 'opacity-70 hover:opacity-100'
+                        }`}
+                      >
+                        All ({generatedQuestions.length})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setQuestionFilter('approved')}
+                        className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
+                          questionFilter === 'approved'
+                            ? 'bg-emerald-600 text-white font-bold'
+                            : 'opacity-70 hover:opacity-100 text-emerald-300'
+                        }`}
+                      >
+                        Approved ({generatedQuestions.filter((q) => q.isApproved).length})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setQuestionFilter('pending')}
+                        className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
+                          questionFilter === 'pending'
+                            ? 'bg-amber-600 text-white font-bold'
+                            : 'opacity-70 hover:opacity-100 text-amber-300'
+                        }`}
+                      >
+                        Pending ({generatedQuestions.filter((q) => !q.isApproved).length})
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="text-xs opacity-75">
+                    Click <strong>"Approve for Test"</strong> on any question to confirm its inclusion.
+                  </div>
+                </div>
+
                 {/* Generated Question Cards */}
                 <div className="space-y-4">
-                  {generatedQuestions.map((q, idx) => (
-                    <div
-                      key={q.id}
-                      className={`p-5 rounded-2xl border transition-all ${
-                        isDark ? 'bg-white/5 border-white/10 hover:border-indigo-500/30' : 'bg-slate-50 border-slate-200'
-                      }`}
-                    >
-                      <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="font-bold text-xs uppercase px-2.5 py-0.5 rounded-md bg-indigo-500/20 text-indigo-400">
-                            Q{idx + 1}
-                          </span>
-                          {q.questionType && (
-                            <span className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-purple-500/20 text-purple-300 border border-purple-500/30 uppercase">
-                              {q.questionType.replace('_', ' ')}
+                  {generatedQuestions
+                    .map((q, originalIdx) => ({ q, originalIdx }))
+                    .filter(({ q }) => {
+                      if (questionFilter === 'approved') return !!q.isApproved;
+                      if (questionFilter === 'pending') return !q.isApproved;
+                      return true;
+                    })
+                    .map(({ q, originalIdx }) => (
+                      <div
+                        key={q.id}
+                        className={`p-5 rounded-2xl border transition-all ${
+                          q.isApproved
+                            ? isDark
+                              ? 'bg-white/5 border-emerald-500/30'
+                              : 'bg-emerald-50/20 border-emerald-200'
+                            : isDark
+                            ? 'bg-white/5 border-white/10'
+                            : 'bg-slate-50 border-slate-200'
+                        }`}
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-bold text-xs uppercase px-2.5 py-0.5 rounded-md bg-indigo-500/20 text-indigo-400">
+                              Q{originalIdx + 1}
                             </span>
-                          )}
-                          {q.subtopic && (
-                            <span className="text-[10px] px-2 py-0.5 rounded-md bg-blue-500/15 text-blue-300 border border-blue-500/25">
-                              {q.subtopic}
+
+                            {/* "Approve for Test" Toggle Button */}
+                            <button
+                              type="button"
+                              onClick={() => handleToggleApproveQuestion(originalIdx)}
+                              className={`px-2.5 py-1 rounded-lg text-[11px] font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                                q.isApproved
+                                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-500/30'
+                                  : 'bg-amber-500/20 text-amber-300 border border-amber-500/40 hover:bg-amber-500/30'
+                              }`}
+                              title={q.isApproved ? 'Click to mark as pending' : 'Click to approve for test'}
+                            >
+                              {q.isApproved ? (
+                                <>
+                                  <Check className="w-3.5 h-3.5 text-emerald-400" />
+                                  <span>Approved for Test</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Clock className="w-3.5 h-3.5 text-amber-400" />
+                                  <span>Approve for Test</span>
+                                </>
+                              )}
+                            </button>
+
+                            {q.questionType && (
+                              <span className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-purple-500/20 text-purple-300 border border-purple-500/30 uppercase">
+                                {q.questionType.replace('_', ' ')}
+                              </span>
+                            )}
+                            {q.subtopic && (
+                              <span className="text-[10px] px-2 py-0.5 rounded-md bg-blue-500/15 text-blue-300 border border-blue-500/25">
+                                {q.subtopic}
+                              </span>
+                            )}
+                            <span className="text-[10px] px-2 py-0.5 rounded-md bg-white/10 opacity-75 capitalize">
+                              {q.difficulty || 'normal'}
                             </span>
-                          )}
-                          <span className="text-[10px] px-2 py-0.5 rounded-md bg-white/10 opacity-75 capitalize">
-                            {q.difficulty || 'normal'}
-                          </span>
+                            {q.source?.title && (
+                              <span className="text-[10px] px-2 py-0.5 rounded-md bg-pink-500/15 text-pink-300 border border-pink-500/25 flex items-center gap-1">
+                                <FileText className="w-3 h-3" />
+                                <span className="truncate max-w-[120px]">{q.source.title}</span>
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="flex items-center gap-1.5">
+                            {/* Edit Question */}
+                            <button
+                              type="button"
+                              onClick={() => handleOpenEditQuestionModal(originalIdx)}
+                              className="px-2.5 py-1 rounded-lg border border-white/15 hover:bg-white/10 text-[11px] font-medium flex items-center gap-1 opacity-80 hover:opacity-100 transition-colors cursor-pointer"
+                              title="Edit this question and options"
+                            >
+                              <Edit3 className="w-3 h-3" />
+                              <span>Edit</span>
+                            </button>
+
+                            {/* Duplicate Question */}
+                            <button
+                              type="button"
+                              onClick={() => handleDuplicateQuestion(originalIdx)}
+                              className="p-1 rounded-lg border border-white/10 hover:bg-white/10 text-slate-300 hover:text-white opacity-70 hover:opacity-100 transition-colors cursor-pointer"
+                              title="Duplicate Question"
+                            >
+                              <Copy className="w-3.5 h-3.5" />
+                            </button>
+
+                            {/* Move Up */}
+                            {originalIdx > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => handleMoveQuestion(originalIdx, 'up')}
+                                className="p-1 rounded-lg border border-white/10 hover:bg-white/10 text-slate-300 hover:text-white opacity-70 hover:opacity-100 transition-colors cursor-pointer"
+                                title="Move Earlier"
+                              >
+                                <ArrowUp className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+
+                            {/* Move Down */}
+                            {originalIdx < generatedQuestions.length - 1 && (
+                              <button
+                                type="button"
+                                onClick={() => handleMoveQuestion(originalIdx, 'down')}
+                                className="p-1 rounded-lg border border-white/10 hover:bg-white/10 text-slate-300 hover:text-white opacity-70 hover:opacity-100 transition-colors cursor-pointer"
+                                title="Move Later"
+                              >
+                                <ArrowDown className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+
+                            {/* Regenerate Single Question (AI) */}
+                            {creationMode !== 'custom_admin' && (
+                              <button
+                                type="button"
+                                onClick={() => handleRegenerateSingleQuestion(originalIdx)}
+                                disabled={regeneratingIndex === originalIdx}
+                                className="px-2 py-1 rounded-lg border border-white/15 hover:bg-white/10 text-[11px] font-medium flex items-center gap-1 opacity-80 hover:opacity-100 transition-colors cursor-pointer"
+                                title="Regenerate this individual question with alternative formulation"
+                              >
+                                <RefreshCw className={`w-3 h-3 ${regeneratingIndex === originalIdx ? 'animate-spin' : ''}`} />
+                                <span className="hidden sm:inline">{regeneratingIndex === originalIdx ? 'Regen...' : 'Regen'}</span>
+                              </button>
+                            )}
+
+                            {/* Delete Question */}
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteQuestion(originalIdx)}
+                              className="text-rose-400 hover:text-rose-300 p-1 opacity-70 hover:opacity-100 cursor-pointer"
+                              title="Remove Question"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
                         </div>
 
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() => handleRegenerateSingleQuestion(idx)}
-                            disabled={regeneratingIndex === idx}
-                            className="px-2.5 py-1 rounded-lg border border-white/15 hover:bg-white/10 text-[11px] font-medium flex items-center gap-1 opacity-80 hover:opacity-100 transition-colors cursor-pointer"
-                            title="Regenerate this individual question with alternative formulation (Master Prompt Section 50)"
-                          >
-                            <RefreshCw className={`w-3 h-3 ${regeneratingIndex === idx ? 'animate-spin' : ''}`} />
-                            <span>{regeneratingIndex === idx ? 'Regenerating...' : 'Regenerate'}</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setGeneratedQuestions(generatedQuestions.filter((_, i) => i !== idx));
-                            }}
-                            className="text-rose-400 hover:text-rose-300 p-1 opacity-70 hover:opacity-100 cursor-pointer"
-                            title="Remove Question"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                        <p className="font-medium text-sm mb-3 leading-relaxed">{q.text}</p>
+
+                        {q.codeSnippet && (
+                          <div className="mb-3 p-3 rounded-lg bg-black/60 font-mono text-xs text-emerald-400 overflow-x-auto whitespace-pre border border-white/5">
+                            {q.codeSnippet}
+                          </div>
+                        )}
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                          {q.options.map((opt, optI) => (
+                            <div
+                              key={optI}
+                              className={`p-2.5 rounded-xl border flex items-center gap-2 ${
+                                optI === q.correctAnswer
+                                  ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300 font-semibold'
+                                  : 'bg-black/20 border-white/5 opacity-80'
+                              }`}
+                            >
+                              <span className="w-5 h-5 rounded-md bg-white/10 flex items-center justify-center font-bold shrink-0">
+                                {['A', 'B', 'C', 'D'][optI]}
+                              </span>
+                              <span>{opt}</span>
+                              {optI === q.correctAnswer && (
+                                <span className="ml-auto text-[10px] uppercase font-bold text-emerald-400 shrink-0">
+                                  Correct Key
+                                </span>
+                              )}
+                            </div>
+                          ))}
                         </div>
+
+                        {q.explanation && (
+                          <div className="mt-3 text-[11px] opacity-75 italic bg-white/5 p-2.5 rounded-lg border border-white/5">
+                            <strong>Academic Rationale:</strong> {q.explanation}
+                          </div>
+                        )}
                       </div>
+                    ))}
+                </div>
+              </div>
+            )}
 
-                      <p className="font-medium text-sm mb-3 leading-relaxed">{q.text}</p>
+            {/* Custom Question Authoring / Edit Modal */}
+            {isAuthoringModalOpen && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fade-in">
+                <div
+                  className={`w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-3xl p-6 sm:p-7 border shadow-2xl ${
+                    isDark ? 'bg-slate-900 border-white/15 text-white' : 'bg-white border-slate-200 text-slate-800'
+                  }`}
+                >
+                  <div className="flex items-center justify-between border-b pb-4 mb-4 border-white/10">
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center">
+                        <Edit3 className="w-4 h-4" />
+                      </div>
+                      <h3 className="text-base font-bold">
+                        {authQuestionIndex !== null
+                          ? `Edit Question #${authQuestionIndex + 1}`
+                          : 'Author New Question for Test'}
+                      </h3>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setIsAuthoringModalOpen(false)}
+                      className="p-1 rounded-lg hover:bg-white/10 opacity-70 hover:opacity-100 cursor-pointer"
+                    >
+                      <X className="w-5 h-5" />
+                    </button>
+                  </div>
 
-                      {q.codeSnippet && (
-                        <div className="mb-3 p-3 rounded-lg bg-black/60 font-mono text-xs text-emerald-400 overflow-x-auto whitespace-pre border border-white/5">
-                          {q.codeSnippet}
-                        </div>
-                      )}
+                  <div className="space-y-4 text-xs">
+                    {/* Question Text */}
+                    <div>
+                      <label className="block font-semibold uppercase tracking-wider mb-1.5 opacity-80">
+                        Question Description / Statement *
+                      </label>
+                      <textarea
+                        rows={3}
+                        value={authText}
+                        onChange={(e) => setAuthText(e.target.value)}
+                        placeholder="Enter the complete question problem or scenario..."
+                        className={`w-full px-3.5 py-2.5 rounded-xl text-sm border focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
+                          isDark ? 'bg-black/40 border-white/15 text-white' : 'bg-slate-50 border-slate-300'
+                        }`}
+                      />
+                    </div>
 
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-                        {q.options.map((opt, optI) => (
+                    {/* 4 Options & Correct Answer Selector */}
+                    <div>
+                      <label className="block font-semibold uppercase tracking-wider mb-1.5 opacity-80">
+                        Answer Options (Select which one is the correct key) *
+                      </label>
+                      <div className="space-y-2.5">
+                        {[
+                          { key: 0, label: 'Option A', val: authOptionA, setter: setAuthOptionA },
+                          { key: 1, label: 'Option B', val: authOptionB, setter: setAuthOptionB },
+                          { key: 2, label: 'Option C', val: authOptionC, setter: setAuthOptionC },
+                          { key: 3, label: 'Option D', val: authOptionD, setter: setAuthOptionD },
+                        ].map((opt) => (
                           <div
-                            key={optI}
-                            className={`p-2.5 rounded-xl border flex items-center gap-2 ${
-                              optI === q.correctAnswer
-                                ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300 font-semibold'
-                                : 'bg-black/20 border-white/5 opacity-80'
+                            key={opt.key}
+                            className={`flex items-center gap-2 p-2 rounded-xl border transition-all ${
+                              authCorrectAnswer === opt.key
+                                ? 'border-emerald-500/60 bg-emerald-500/10'
+                                : isDark
+                                ? 'border-white/10 bg-black/20'
+                                : 'border-slate-200 bg-slate-50'
                             }`}
                           >
-                            <span className="w-5 h-5 rounded-md bg-white/10 flex items-center justify-center font-bold shrink-0">
-                              {['A', 'B', 'C', 'D'][optI]}
-                            </span>
-                            <span>{opt}</span>
-                            {optI === q.correctAnswer && (
-                              <span className="ml-auto text-[10px] uppercase font-bold text-emerald-400 shrink-0">
-                                Key
+                            <button
+                              type="button"
+                              onClick={() => setAuthCorrectAnswer(opt.key)}
+                              className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-xs shrink-0 cursor-pointer transition-all ${
+                                authCorrectAnswer === opt.key
+                                  ? 'bg-emerald-500 text-white shadow-md shadow-emerald-500/30'
+                                  : 'bg-white/10 opacity-70 hover:opacity-100'
+                              }`}
+                              title="Click to mark as correct answer"
+                            >
+                              {['A', 'B', 'C', 'D'][opt.key]}
+                            </button>
+                            <input
+                              type="text"
+                              value={opt.val}
+                              onChange={(e) => opt.setter(e.target.value)}
+                              placeholder={`Enter text for ${opt.label}...`}
+                              className={`flex-1 px-3 py-1.5 rounded-lg text-xs bg-transparent border-0 focus:outline-none ${
+                                isDark ? 'text-white' : 'text-slate-800'
+                              }`}
+                            />
+                            {authCorrectAnswer === opt.key && (
+                              <span className="text-[10px] uppercase font-bold text-emerald-400 px-2 py-0.5 rounded bg-emerald-500/20 shrink-0">
+                                Correct Key
                               </span>
                             )}
                           </div>
                         ))}
                       </div>
-
-                      {q.explanation && (
-                        <div className="mt-3 text-[11px] opacity-75 italic bg-white/5 p-2.5 rounded-lg border border-white/5">
-                          <strong>Academic Rationale:</strong> {q.explanation}
-                        </div>
-                      )}
                     </div>
-                  ))}
+
+                    {/* Explanation */}
+                    <div>
+                      <label className="block font-semibold uppercase tracking-wider mb-1.5 opacity-80">
+                        Explanation / Answer Key Rationale
+                      </label>
+                      <textarea
+                        rows={2}
+                        value={authExplanation}
+                        onChange={(e) => setAuthExplanation(e.target.value)}
+                        placeholder="Explain why the selected option is correct according to academic curriculum..."
+                        className={`w-full px-3.5 py-2 rounded-xl text-xs border focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
+                          isDark ? 'bg-black/40 border-white/15 text-white' : 'bg-slate-50 border-slate-300'
+                        }`}
+                      />
+                    </div>
+
+                    {/* Taxonomy, Difficulty, Subtopic */}
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <div>
+                        <label className="block font-semibold uppercase tracking-wider mb-1.5 opacity-80">
+                          Difficulty Level
+                        </label>
+                        <select
+                          value={authDifficulty}
+                          onChange={(e) => setAuthDifficulty(e.target.value as any)}
+                          className={`w-full px-3 py-2 rounded-xl text-xs border focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
+                            isDark ? 'bg-slate-800 border-white/15 text-white' : 'bg-slate-50 border-slate-300'
+                          }`}
+                        >
+                          <option value="easy">Easy (Definitions & Recall)</option>
+                          <option value="normal">Normal (Conceptual Understanding)</option>
+                          <option value="medium">Medium (Applied Analysis)</option>
+                          <option value="hard">Hard (Advanced Reasoning)</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block font-semibold uppercase tracking-wider mb-1.5 opacity-80">
+                          Question Type
+                        </label>
+                        <select
+                          value={authQuestionType}
+                          onChange={(e) => setAuthQuestionType(e.target.value)}
+                          className={`w-full px-3 py-2 rounded-xl text-xs border focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
+                            isDark ? 'bg-slate-800 border-white/15 text-white' : 'bg-slate-50 border-slate-300'
+                          }`}
+                        >
+                          <option value="conceptual">Conceptual</option>
+                          <option value="application">Application-Based</option>
+                          <option value="scenario">Scenario-Based</option>
+                          <option value="numerical">Numerical / Formula</option>
+                          <option value="debugging">Code / Debugging</option>
+                          <option value="practical_lab">Practical Lab</option>
+                          <option value="definition">Definition</option>
+                          <option value="comparison">Comparison</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block font-semibold uppercase tracking-wider mb-1.5 opacity-80">
+                          Subtopic Tag
+                        </label>
+                        <input
+                          type="text"
+                          value={authSubtopic}
+                          onChange={(e) => setAuthSubtopic(e.target.value)}
+                          placeholder="e.g. Memory Paging"
+                          className={`w-full px-3 py-2 rounded-xl text-xs border focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
+                            isDark ? 'bg-black/40 border-white/15 text-white' : 'bg-slate-50 border-slate-300'
+                          }`}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Optional Code Snippet */}
+                    <div>
+                      <label className="block font-semibold uppercase tracking-wider mb-1.5 opacity-80">
+                        Code Snippet or Technical Scenario (Optional)
+                      </label>
+                      <textarea
+                        rows={2}
+                        value={authCodeSnippet}
+                        onChange={(e) => setAuthCodeSnippet(e.target.value)}
+                        placeholder="Optional code block or mathematical equation..."
+                        className={`w-full px-3.5 py-2 rounded-xl text-xs font-mono border focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
+                          isDark ? 'bg-black/60 border-white/15 text-emerald-400' : 'bg-slate-900 border-slate-300 text-emerald-300'
+                        }`}
+                      />
+                    </div>
+
+                    {/* Approval Checkbox */}
+                    <div className="flex items-center gap-2 pt-2">
+                      <input
+                        type="checkbox"
+                        id="authApprovedCheck"
+                        checked={authIsApproved}
+                        onChange={(e) => setAuthIsApproved(e.target.checked)}
+                        className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500"
+                      />
+                      <label htmlFor="authApprovedCheck" className="text-xs font-semibold cursor-pointer">
+                        Approve this question for the test immediately
+                      </label>
+                    </div>
+                  </div>
+
+                  {/* Modal Action Buttons */}
+                  <div className="flex items-center justify-end gap-2.5 pt-4 mt-4 border-t border-white/10">
+                    <button
+                      type="button"
+                      onClick={() => setIsAuthoringModalOpen(false)}
+                      className="px-4 py-2 rounded-xl border border-white/15 hover:bg-white/10 text-xs font-semibold transition-colors cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleSaveAuthoredQuestion}
+                      className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md shadow-emerald-600/30 flex items-center gap-1.5 transition-all cursor-pointer"
+                    >
+                      <Check className="w-4 h-4" />
+                      <span>{authQuestionIndex !== null ? 'Save Changes' : 'Add Question to Test'}</span>
+                    </button>
+                  </div>
                 </div>
               </div>
             )}
@@ -1581,7 +2860,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                   >
                     <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b pb-4 mb-4 border-white/10">
                       <div>
-                        <div className="flex items-center gap-2.5 mb-1.5">
+                        <div className="flex items-center gap-2.5 mb-1.5 flex-wrap">
                           <span className="font-mono text-xs font-bold px-2.5 py-0.5 rounded-md bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">
                             {exam.code}
                           </span>
@@ -1591,6 +2870,22 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                           <span className="text-xs px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 font-semibold">
                             {exam.difficulty}
                           </span>
+                          {exam.creationMethod === 'pdf_upload' || exam.pdfFilename ? (
+                            <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-pink-500/20 text-pink-300 border border-pink-500/30 flex items-center gap-1">
+                              <FileText className="w-3 h-3" />
+                              <span>PDF: {exam.pdfFilename || 'Uploaded Document'}</span>
+                            </span>
+                          ) : exam.creationMethod === 'custom_admin' ? (
+                            <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center gap-1">
+                              <Edit3 className="w-3 h-3" />
+                              <span>Custom Faculty Test</span>
+                            </span>
+                          ) : (
+                            <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 flex items-center gap-1">
+                              <Sparkles className="w-3 h-3" />
+                              <span>AI Topic Exam</span>
+                            </span>
+                          )}
                         </div>
                         <h3 className="text-lg font-bold">{exam.title}</h3>
                         <p className="text-xs opacity-60 mt-0.5">

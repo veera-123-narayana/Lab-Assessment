@@ -37,6 +37,8 @@ export interface Question {
   questionType?: QuestionType | string;
   source?: QuestionSource;
   codeSnippet?: string;
+  isApproved?: boolean;
+  marks?: number;
 }
 
 export type ExamDifficulty = 'Easy' | 'Normal' | 'Medium' | 'Hard' | 'AI_CHOICE' | 'AI Choice';
@@ -81,6 +83,8 @@ export interface Exam {
   totalMarks: number;
   additionalInstructions?: string;
   generationMode?: 'ai_generated' | 'research_informed' | 'admin_question_bank';
+  creationMethod?: 'ai_topic' | 'pdf_upload' | 'custom_admin';
+  pdfFilename?: string;
   facultySummary?: FacultyReviewSummary;
   createdAt: string;
   status: 'active' | 'completed' | 'draft';

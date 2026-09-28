@@ -15,10 +15,18 @@ import {
   Sun,
   Moon,
   Sparkles,
-  BookOpen
+  BookOpen,
+  ArrowRight,
+  Cpu,
+  FileText,
+  Edit3
 } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
 import { Exam, Question, StudentRegistration, StudentSubmission, ViolationEvent } from '../types';
 import { checkPreviousSubmission, getStoredExams, recordSubmission } from '../lib/storage';
+import ParticleField from './ParticleField';
+import ExamInitialization from './ExamInitialization';
+import ResultCelebration from './ResultCelebration';
 
 interface StudentPortalProps {
   theme: 'dark' | 'light';
@@ -26,7 +34,7 @@ interface StudentPortalProps {
   onOpenAdminSecret: () => void;
 }
 
-type ExamState = 'registration' | 'rules' | 'active' | 'already_taken' | 'completed';
+type ExamState = 'registration' | 'rules' | 'initializing' | 'active' | 'already_taken' | 'completed';
 
 export const StudentPortal: React.FC<StudentPortalProps> = ({
   theme,
@@ -155,7 +163,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
       console.warn('Fullscreen request bypassed or permission restricted in iframe:', err);
     }
 
-    setExamState('active');
+    setExamState('initializing');
   };
 
   // Record a proctoring violation
@@ -363,28 +371,25 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
     <div
       ref={examContainerRef}
       className={`min-h-screen relative flex flex-col font-sans transition-colors duration-300 ${
-        isDark ? 'bg-[#080A19] text-white' : 'bg-slate-50 text-slate-900'
+        isDark ? 'bg-[#02040A] text-white' : 'bg-slate-50 text-slate-900'
       }`}
     >
-      {/* Background High-Tech Ambient Video */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none z-0">
+      {/* Background High-Tech Ambient Particle Field & Light */}
+      <ParticleField density="medium" color="mixed" />
+      <div className="absolute inset-0 bg-cyber-grid pointer-events-none opacity-40 z-0" />
+      <div className="absolute inset-0 bg-focal-glow pointer-events-none z-0" />
+
+      {/* Ambient Tech Video Overlay */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none z-0 opacity-20">
         <video
-          className={`w-full h-full object-cover transition-opacity duration-700 ${
-            isDark ? 'opacity-35' : 'opacity-10'
-          }`}
+          className="w-full h-full object-cover"
           src="https://d8j0ntlcm91z4.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/hf_20260813_092641_de52eb87-daf2-41db-92cb-7a56eae012a5.mp4"
           autoPlay
           loop
           muted
           playsInline
         />
-        <div
-          className={`absolute inset-0 ${
-            isDark
-              ? 'bg-gradient-to-b from-[#080A19]/80 via-[#080A19]/60 to-[#080A19]'
-              : 'bg-gradient-to-b from-white/90 via-slate-50/80 to-slate-100'
-          }`}
-        />
+        <div className="absolute inset-0 bg-gradient-to-b from-[#02040A]/85 via-[#02040A]/60 to-[#02040A]" />
       </div>
 
       {/* Header bar (Students see only student assessment branding, NO prominent admin buttons) */}
@@ -484,6 +489,47 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                       </option>
                     ))}
                   </select>
+
+                  {/* Selected Exam Information Badge */}
+                  {(() => {
+                    const currentEx = exams.find((e) => e.id === selectedExamId);
+                    if (!currentEx) return null;
+                    return (
+                      <div
+                        className={`mt-2.5 p-3 rounded-xl border text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2 ${
+                          isDark ? 'bg-white/5 border-white/10' : 'bg-slate-100/80 border-slate-200'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-semibold">{currentEx.subject}</span>
+                          <span className="opacity-40">•</span>
+                          <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-bold text-[10px]">
+                            {currentEx.difficulty}
+                          </span>
+                          {currentEx.creationMethod === 'pdf_upload' || currentEx.pdfFilename ? (
+                            <span className="px-2 py-0.5 rounded-full bg-pink-500/20 text-pink-300 font-bold text-[10px] flex items-center gap-1">
+                              <FileText className="w-3 h-3" />
+                              <span>PDF Document Test</span>
+                            </span>
+                          ) : currentEx.creationMethod === 'custom_admin' ? (
+                            <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-bold text-[10px] flex items-center gap-1">
+                              <Edit3 className="w-3 h-3" />
+                              <span>Faculty Custom Test</span>
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 font-bold text-[10px] flex items-center gap-1">
+                              <Sparkles className="w-3 h-3" />
+                              <span>AI Topic Test</span>
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="text-[11px] opacity-75 font-mono">
+                          {currentEx.questions.length} Questions • {currentEx.durationMinutes} Mins • Max Marks: {currentEx.totalMarks || currentEx.questions.length}
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 {/* Full Name */}
@@ -752,61 +798,89 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
           </div>
         )}
 
-        {/* VIEW 4: ACTIVE EXAM IN PROGRESS (ONE BY ONE QUESTIONS & SAVE AND NEXT) */}
+        {/* VIEW: INITIALIZING CINEMATIC HUD SEQUENCE (Master Prompt) */}
+        {examState === 'initializing' && activeExam && (
+          <ExamInitialization
+            examTitle={activeExam.title}
+            examCode={activeExam.code}
+            totalQuestions={shuffledQuestions.length || activeExam.questions.length}
+            durationMinutes={activeExam.durationMinutes}
+            onComplete={() => setExamState('active')}
+          />
+        )}
+
+        {/* VIEW 4: ACTIVE EXAM IN PROGRESS (FUTURISTIC LABORA AI HUD & FLOATING GLASS SURFACE) */}
         {examState === 'active' && activeExam && shuffledQuestions.length > 0 && (
-          <div className="w-full max-w-4xl mx-auto flex flex-col gap-4">
-            {/* Top Exam HUD: Timer, Progress, Violations */}
-            <div
-              className={`rounded-2xl p-4 backdrop-blur-xl border flex flex-wrap items-center justify-between gap-3 shadow-lg ${
-                isDark ? 'bg-black/60 border-white/10' : 'bg-white border-slate-200'
-              }`}
-            >
+          <div className="w-full max-w-4xl mx-auto flex flex-col gap-5">
+            {/* Top Exam HUD: Timer, Progress Bar, Violations */}
+            <div className="glass-panel rounded-3xl p-4 sm:p-5 flex flex-wrap items-center justify-between gap-4 shadow-xl border border-white/10 relative overflow-hidden">
               <div className="flex items-center gap-3">
-                <div className="font-bold text-sm sm:text-base">{activeExam.title}</div>
-                <div className="text-xs font-mono px-2.5 py-1 rounded-md bg-white/10 opacity-80">
-                  {formData.rollNumber} • {formData.fullName}
+                <div className="w-9 h-9 rounded-xl bg-blue-500/20 text-cyan-300 border border-cyan-400/30 flex items-center justify-center font-display font-bold text-sm shrink-0">
+                  <Cpu className="w-5 h-5 text-cyan-400" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-display font-bold text-sm tracking-wide text-white">
+                      LABORA AI
+                    </span>
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-cyan-500/15 text-cyan-300 border border-cyan-400/30">
+                      {activeExam.code}
+                    </span>
+                  </div>
+                  <div className="text-xs text-slate-400 truncate max-w-[280px] sm:max-w-md">
+                    {activeExam.title} • <span className="font-mono text-cyan-400">{formData.rollNumber}</span>
+                  </div>
                 </div>
               </div>
 
-              <div className="flex items-center gap-4">
-                {/* Violation Counter Badge */}
+              {/* Progress & Live Countdown Timer */}
+              <div className="flex items-center gap-3.5">
+                {/* Security Violations Tracker */}
                 <div
-                  className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold font-mono border ${
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold font-mono border transition-colors ${
                     violationCount >= 2
-                      ? 'bg-rose-500/20 text-rose-400 border-rose-500/40 animate-pulse'
+                      ? 'bg-rose-500/25 text-rose-300 border-rose-500/50 animate-pulse'
                       : violationCount === 1
-                      ? 'bg-amber-500/20 text-amber-400 border-amber-500/40'
+                      ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
                       : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
                   }`}
+                  title="Fullscreen & tab switch violation monitor"
                 >
                   <ShieldAlert className="w-4 h-4" />
                   <span>
-                    Violations: {violationCount} / {activeExam.maxViolations || 3}
+                    INFRACTIONS: {violationCount} / {activeExam.maxViolations || 3}
                   </span>
                 </div>
 
-                {/* Live Countdown Timer */}
+                {/* Glowing HUD Countdown Timer */}
                 <div
-                  className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-sm font-mono font-bold border ${
-                    timeLeftSeconds < 180
-                      ? 'bg-rose-500/20 text-rose-400 border-rose-500/40 animate-pulse'
-                      : 'bg-indigo-500/15 text-indigo-400 border-indigo-500/30'
+                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-mono font-bold border transition-all ${
+                    timeLeftSeconds < activeExam.durationMinutes * 60 * 0.1
+                      ? 'bg-rose-500/20 text-rose-300 border-rose-500/50 shadow-[0_0_15px_rgba(244,63,94,0.35)] animate-pulse'
+                      : timeLeftSeconds < activeExam.durationMinutes * 60 * 0.2
+                      ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-[0_0_15px_rgba(245,158,11,0.25)]'
+                      : 'bg-blue-600/20 text-cyan-300 border-cyan-400/40 shadow-[0_0_18px_rgba(91,231,255,0.2)]'
                   }`}
                 >
-                  <Clock className="w-4 h-4" />
-                  <span>{formatTime(timeLeftSeconds)}</span>
+                  <Clock className="w-4 h-4 text-cyan-400" />
+                  <span className="tracking-wider">{formatTime(timeLeftSeconds)}</span>
                 </div>
               </div>
             </div>
 
+            {/* Continuous Progress Bar Line */}
+            <div className="w-full bg-white/10 h-1.5 rounded-full overflow-hidden p-0.5 border border-white/5">
+              <motion.div
+                className="h-full bg-gradient-to-r from-blue-600 via-cyan-400 to-white rounded-full shadow-[0_0_10px_rgba(91,231,255,0.7)]"
+                animate={{ width: `${((currentQuestionIndex + 1) / shuffledQuestions.length) * 100}%` }}
+                transition={{ duration: 0.35, ease: 'easeOut' }}
+              />
+            </div>
+
             {/* Question Progress Navigation Bar */}
-            <div
-              className={`rounded-xl p-3 border flex items-center justify-between overflow-x-auto gap-2 ${
-                isDark ? 'bg-white/5 border-white/10' : 'bg-white border-slate-200'
-              }`}
-            >
+            <div className="glass-panel rounded-2xl p-3 border border-white/10 flex items-center justify-between overflow-x-auto gap-2 text-xs">
               <div className="flex items-center gap-2">
-                <span className="text-xs uppercase font-semibold opacity-70">Questions:</span>
+                <span className="uppercase font-mono text-[11px] opacity-60 tracking-wider">NAVIGATOR:</span>
                 <div className="flex items-center gap-1.5">
                   {shuffledQuestions.map((q, idx) => {
                     const isAnswered = selectedAnswers[q.id] !== undefined;
@@ -815,14 +889,12 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                       <button
                         key={q.id}
                         onClick={() => setCurrentQuestionIndex(idx)}
-                        className={`w-7 h-7 rounded-lg text-xs font-bold transition-all flex items-center justify-center ${
+                        className={`w-7 h-7 rounded-lg text-xs font-mono font-bold transition-all flex items-center justify-center cursor-pointer ${
                           isCurrent
-                            ? 'ring-2 ring-indigo-400 bg-indigo-600 text-white'
+                            ? 'ring-2 ring-cyan-400 bg-gradient-to-r from-blue-600 to-cyan-500 text-white shadow-md shadow-cyan-500/30'
                             : isAnswered
-                            ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                            : isDark
-                            ? 'bg-white/5 text-white/50 hover:bg-white/10'
-                            : 'bg-slate-200 text-slate-600 hover:bg-slate-300'
+                            ? 'bg-blue-500/20 text-cyan-300 border border-cyan-400/30'
+                            : 'bg-white/5 text-white/40 hover:bg-white/10 border border-white/5'
                         }`}
                       >
                         {idx + 1}
@@ -832,231 +904,168 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                 </div>
               </div>
 
-              <div className="text-xs opacity-70 font-mono">
-                {Object.keys(selectedAnswers).length} of {shuffledQuestions.length} Answered
+              <div className="font-mono text-[11px] text-cyan-300/80 shrink-0">
+                {Object.keys(selectedAnswers).length} / {shuffledQuestions.length} ANSWERED
               </div>
             </div>
 
-            {/* Main Question Card (ONE BY ONE DISPLAY) */}
+            {/* Main Floating Glass Examination Surface Card */}
             {(() => {
               const q = shuffledQuestions[currentQuestionIndex];
               return (
-                <div
-                  className={`rounded-3xl p-6 sm:p-9 backdrop-blur-2xl border shadow-xl flex flex-col justify-between min-h-[420px] ${
-                    isDark ? 'bg-[rgba(17,16,25,0.85)] border-white/10' : 'bg-white border-slate-200 text-slate-900'
-                  }`}
-                >
-                  <div>
-                    {/* Question Header */}
-                    <div className="flex items-center justify-between mb-4">
-                      <span className="text-xs font-bold uppercase tracking-wider px-3 py-1 rounded-full bg-indigo-500/15 text-indigo-400 border border-indigo-500/20">
-                        Question {currentQuestionIndex + 1} of {shuffledQuestions.length}
-                      </span>
-                      {q.topic && (
-                        <span className="text-xs font-mono opacity-60">
-                          Domain: {q.topic}
-                        </span>
-                      )}
-                    </div>
+                <AnimatePresence mode="wait">
+                  <motion.div
+                    key={q.id}
+                    initial={{ opacity: 0, x: 26, filter: 'blur(6px)' }}
+                    animate={{ opacity: 1, x: 0, filter: 'blur(0px)' }}
+                    exit={{ opacity: 0, x: -26, filter: 'blur(6px)' }}
+                    transition={{ duration: 0.42, ease: [0.16, 1, 0.3, 1] }}
+                    className="glass-panel-elevated rounded-3xl p-6 sm:p-9 flex flex-col justify-between min-h-[440px] relative overflow-hidden"
+                  >
+                    <div>
+                      {/* Question Classification Header */}
+                      <div className="flex flex-wrap items-center justify-between gap-2 mb-4 pb-3 border-b border-white/10">
+                        <div className="flex items-center gap-2">
+                          <span className="font-display font-extrabold text-xs sm:text-sm tracking-widest text-cyan-300 px-3 py-1 rounded-full bg-cyan-500/15 border border-cyan-400/30">
+                            QUESTION {(currentQuestionIndex + 1).toString().padStart(2, '0')}
+                          </span>
+                          {q.questionType && (
+                            <span className="text-[10px] font-mono px-2.5 py-1 rounded-full bg-purple-500/20 text-purple-300 border border-purple-400/30 uppercase tracking-wider">
+                              {q.questionType.replace('_', ' ')}
+                            </span>
+                          )}
+                        </div>
 
-                    {/* Question Text */}
-                    <h3 className="text-base sm:text-lg font-semibold leading-relaxed mb-4">
-                      {q.text}
-                    </h3>
-
-                    {/* Code Snippet if applicable */}
-                    {q.codeSnippet && (
-                      <div className="mb-5 rounded-xl bg-black/70 border border-white/10 p-3.5 font-mono text-xs text-emerald-400 overflow-x-auto whitespace-pre">
-                        {q.codeSnippet}
+                        {q.subtopic && (
+                          <span className="text-xs font-mono text-slate-400 truncate max-w-[200px]">
+                            {q.subtopic}
+                          </span>
+                        )}
                       </div>
-                    )}
 
-                    {/* 4 MCQ Options */}
-                    <div className="space-y-3 mt-4">
-                      {q.options.map((opt, optIdx) => {
-                        const isSelected = tempSelection === optIdx;
-                        const optionLetters = ['A', 'B', 'C', 'D'];
-                        return (
-                          <button
-                            key={optIdx}
-                            onClick={() => setTempSelection(optIdx)}
-                            className={`w-full text-left p-4 rounded-2xl border transition-all flex items-center gap-3.5 cursor-pointer ${
-                              isSelected
-                                ? 'bg-indigo-600/20 border-indigo-500 text-white shadow-md shadow-indigo-500/20 ring-1 ring-indigo-500'
-                                : isDark
-                                ? 'bg-white/5 border-white/10 hover:bg-white/10 text-white/90'
-                                : 'bg-slate-50 border-slate-200 hover:bg-slate-100 text-slate-800'
-                            }`}
-                          >
-                            <span
-                              className={`w-7 h-7 rounded-xl flex items-center justify-center text-xs font-bold shrink-0 transition-colors ${
+                      {/* Question Text */}
+                      <h3 className="text-base sm:text-lg font-medium leading-relaxed text-white mb-5 font-tech">
+                        {q.text}
+                      </h3>
+
+                      {/* Code Snippet if applicable */}
+                      {q.codeSnippet && (
+                        <div className="mb-5 rounded-2xl bg-[#010207] border border-cyan-500/20 p-4 font-mono text-xs text-emerald-400 overflow-x-auto whitespace-pre shadow-inner">
+                          {q.codeSnippet}
+                        </div>
+                      )}
+
+                      {/* 4 Interactive MCQ Options */}
+                      <div className="space-y-3 mt-4">
+                        {q.options.map((opt, optIdx) => {
+                          const isSelected = tempSelection === optIdx;
+                          const optionLetters = ['A', 'B', 'C', 'D'];
+                          return (
+                            <button
+                              key={optIdx}
+                              onClick={() => setTempSelection(optIdx)}
+                              className={`w-full text-left p-4 sm:p-4.5 rounded-2xl border transition-all flex items-center gap-3.5 cursor-pointer ${
                                 isSelected
-                                  ? 'bg-indigo-500 text-white'
-                                  : isDark
-                                  ? 'bg-white/10 text-white/70'
-                                  : 'bg-slate-200 text-slate-700'
+                                  ? 'bg-blue-600/25 border-cyan-400 text-white shadow-lg shadow-cyan-500/20 ring-1 ring-cyan-400'
+                                  : 'bg-white/5 border-white/10 hover:border-cyan-400/40 hover:translate-x-1.5 text-white/90'
                               }`}
                             >
-                              {optionLetters[optIdx]}
-                            </span>
-                            <span className="text-sm font-medium">{opt}</span>
-                          </button>
-                        );
-                      })}
+                              <span
+                                className={`w-8 h-8 rounded-xl flex items-center justify-center text-xs font-mono font-bold shrink-0 transition-colors ${
+                                  isSelected
+                                    ? 'bg-gradient-to-tr from-cyan-400 to-blue-500 text-black font-extrabold shadow-md shadow-cyan-400/40'
+                                    : 'bg-white/10 text-white/80 border border-white/10'
+                                }`}
+                              >
+                                {optionLetters[optIdx]}
+                              </span>
+                              <span className="text-sm font-tech leading-snug flex-1">{opt}</span>
+
+                              {isSelected && (
+                                <motion.div
+                                  initial={{ scale: 0 }}
+                                  animate={{ scale: 1 }}
+                                  className="w-2.5 h-2.5 rounded-full bg-cyan-400 shadow-[0_0_8px_#5BE7FF] shrink-0"
+                                />
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
-                  </div>
 
-                  {/* Question Bottom Action Bar: Save and Next */}
-                  <div className="flex items-center justify-between pt-6 mt-6 border-t border-white/10">
-                    <button
-                      onClick={() => setCurrentQuestionIndex((prev) => Math.max(prev - 1, 0))}
-                      disabled={currentQuestionIndex === 0}
-                      className="px-4 py-2.5 rounded-xl border border-white/15 text-xs sm:text-sm font-medium flex items-center gap-1.5 disabled:opacity-30 disabled:cursor-not-allowed hover:bg-white/5 transition-all"
-                    >
-                      <ChevronLeft className="w-4 h-4" />
-                      <span>Previous</span>
-                    </button>
-
-                    <div className="flex items-center gap-3">
-                      {/* Save & Next Button: Enabled once option is marked */}
+                    {/* Question Bottom Action Bar: Previous, Save & Next, Finish */}
+                    <div className="flex items-center justify-between pt-6 mt-6 border-t border-white/10">
                       <button
-                        onClick={handleSaveAndNext}
-                        disabled={tempSelection === null}
-                        className={`px-5 py-2.5 rounded-xl font-bold text-xs sm:text-sm flex items-center gap-2 transition-all ${
-                          tempSelection !== null
-                            ? 'bg-gradient-to-r from-indigo-500 to-purple-600 text-white shadow-lg shadow-indigo-500/30 hover:opacity-95 cursor-pointer'
-                            : 'bg-white/10 text-white/40 cursor-not-allowed border border-white/10'
-                        }`}
+                        onClick={() => setCurrentQuestionIndex((prev) => Math.max(prev - 1, 0))}
+                        disabled={currentQuestionIndex === 0}
+                        className="px-4 py-2.5 rounded-xl border border-white/15 text-xs sm:text-sm font-medium flex items-center gap-1.5 disabled:opacity-30 disabled:cursor-not-allowed hover:bg-white/5 transition-all text-slate-300"
                       >
-                        <Save className="w-4 h-4" />
-                        <span>Save & Next Question</span>
-                        <ChevronRight className="w-4 h-4" />
+                        <ChevronLeft className="w-4 h-4" />
+                        <span>Previous</span>
                       </button>
 
-                      {/* Final Submit Exam Button */}
-                      <button
-                        onClick={() => {
-                          if (tempSelection !== null) {
-                            const currentQ = shuffledQuestions[currentQuestionIndex];
-                            setSelectedAnswers((prev) => ({
-                              ...prev,
-                              [currentQ.id]: tempSelection,
-                            }));
-                          }
-                          setShowFinishConfirmModal(true);
-                        }}
-                        className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs sm:text-sm flex items-center gap-1.5 shadow-md shadow-emerald-600/30 transition-all cursor-pointer"
-                        title="Submit exam responses"
-                      >
-                        <Send className="w-3.5 h-3.5" />
-                        <span>Finish Exam</span>
-                      </button>
+                      <div className="flex items-center gap-3">
+                        {/* Save & Next Button */}
+                        <button
+                          onClick={handleSaveAndNext}
+                          disabled={tempSelection === null}
+                          className={`px-5 py-2.5 rounded-xl font-bold text-xs sm:text-sm flex items-center gap-2 transition-all cursor-pointer ${
+                            tempSelection !== null
+                              ? 'bg-gradient-to-r from-blue-600 via-cyan-500 to-blue-500 text-black font-bold shadow-lg shadow-cyan-500/30 hover:opacity-95'
+                              : 'bg-white/10 text-white/40 cursor-not-allowed border border-white/10'
+                          }`}
+                        >
+                          <Save className="w-4 h-4" />
+                          <span>SAVE & NEXT</span>
+                          <ChevronRight className="w-4 h-4" />
+                        </button>
+
+                        {/* Final Submit Exam Button */}
+                        <button
+                          onClick={() => {
+                            if (tempSelection !== null) {
+                              const currentQ = shuffledQuestions[currentQuestionIndex];
+                              setSelectedAnswers((prev) => ({
+                                ...prev,
+                                [currentQ.id]: tempSelection,
+                              }));
+                            }
+                            setShowFinishConfirmModal(true);
+                          }}
+                          className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs sm:text-sm flex items-center gap-1.5 shadow-md shadow-emerald-600/30 transition-all cursor-pointer"
+                          title="Finish exam and calculate score"
+                        >
+                          <Send className="w-3.5 h-3.5" />
+                          <span>FINISH EXAM</span>
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                </div>
+                  </motion.div>
+                </AnimatePresence>
               );
             })()}
           </div>
         )}
 
-        {/* VIEW 5: EXAM FINISHED / RESULTS SUMMARY */}
+        {/* VIEW 5: CINEMATIC ACHIEVEMENT & PERFORMANCE INTELLIGENCE (Master Prompt Result Experience) */}
         {examState === 'completed' && finalSubmission && (
-          <div className="w-full max-w-xl mx-auto">
-            <div
-              className={`rounded-3xl p-6 sm:p-9 backdrop-blur-2xl border shadow-2xl text-center ${
-                isDark ? 'bg-[rgba(17,16,25,0.85)] border-white/10 text-white' : 'bg-white border-slate-200 text-slate-800'
-              }`}
-            >
-              <div className="w-16 h-16 rounded-2xl bg-emerald-500/20 text-emerald-400 mx-auto flex items-center justify-center mb-5 border border-emerald-500/30">
-                <CheckCircle2 className="w-8 h-8" />
-              </div>
-
-              <h2 className="text-2xl font-bold tracking-tight mb-1">
-                Assessment Successfully Submitted
-              </h2>
-              <p className={`text-sm mb-6 ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
-                Your examination responses and proctoring telemetry have been securely registered with faculty records.
-              </p>
-
-              {/* Score & Summary Card */}
-              <div className="grid grid-cols-2 gap-3 mb-6">
-                <div
-                  className={`p-4 rounded-2xl border ${
-                    isDark ? 'bg-white/5 border-white/10' : 'bg-slate-50 border-slate-200'
-                  }`}
-                >
-                  <div className="text-xs uppercase font-semibold opacity-60 mb-1">Final Score</div>
-                  <div className="text-2xl sm:text-3xl font-extrabold text-emerald-400">
-                    {finalSubmission.score} / {finalSubmission.totalQuestions}
-                  </div>
-                  <div className="text-xs font-mono text-emerald-400/80 mt-1">
-                    {finalSubmission.percentage.toFixed(1)}% Accuracy
-                  </div>
-                </div>
-
-                <div
-                  className={`p-4 rounded-2xl border ${
-                    isDark ? 'bg-white/5 border-white/10' : 'bg-slate-50 border-slate-200'
-                  }`}
-                >
-                  <div className="text-xs uppercase font-semibold opacity-60 mb-1">Proctoring Telemetry</div>
-                  <div
-                    className={`text-2xl sm:text-3xl font-extrabold ${
-                      finalSubmission.violationsCount === 0 ? 'text-emerald-400' : 'text-amber-400'
-                    }`}
-                  >
-                    {finalSubmission.violationsCount} Flag{finalSubmission.violationsCount !== 1 ? 's' : ''}
-                  </div>
-                  <div className="text-xs font-mono opacity-70 mt-1 uppercase">
-                    {finalSubmission.status.replace(/_/g, ' ')}
-                  </div>
-                </div>
-              </div>
-
-              {/* Candidate Info Receipt */}
-              <div
-                className={`text-left rounded-2xl p-4 mb-6 border text-xs sm:text-sm space-y-2 ${
-                  isDark ? 'bg-black/40 border-white/10' : 'bg-slate-50 border-slate-200'
-                }`}
-              >
-                <div className="flex justify-between">
-                  <span className="opacity-60">Candidate:</span>
-                  <span className="font-semibold">{finalSubmission.student.fullName}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="opacity-60">Roll Number:</span>
-                  <span className="font-mono font-bold text-indigo-400">{finalSubmission.student.rollNumber}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="opacity-60">Branch & Section:</span>
-                  <span>
-                    {finalSubmission.student.branch} • {finalSubmission.student.section} ({finalSubmission.student.year})
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="opacity-60">Submission Timestamp:</span>
-                  <span className="font-mono">{new Date(finalSubmission.submittedAt).toLocaleTimeString()}</span>
-                </div>
-              </div>
-
-              <button
-                onClick={() => {
-                  setExamState('registration');
-                  setFormData({
-                    fullName: '',
-                    email: '',
-                    rollNumber: '',
-                    branch: 'Computer Science & Engineering',
-                    section: 'Section A',
-                    year: '3rd Year',
-                  });
-                }}
-                className="w-full py-3.5 rounded-xl bg-white/10 hover:bg-white/15 border border-white/15 text-sm font-semibold transition-all"
-              >
-                Return to Exam Portal
-              </button>
-            </div>
-          </div>
+          <ResultCelebration
+            submission={finalSubmission}
+            questions={activeExam?.questions || []}
+            onReturnToPortal={() => {
+              setExamState('registration');
+              setFormData({
+                fullName: '',
+                email: '',
+                rollNumber: '',
+                branch: 'Computer Science & Engineering',
+                section: 'Section A',
+                year: '3rd Year',
+              });
+              setFinalSubmission(null);
+            }}
+          />
         )}
       </main>
 
