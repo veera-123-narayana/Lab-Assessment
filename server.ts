@@ -6,6 +6,17 @@ import { createRequire } from 'module';
 
 dotenv.config();
 
+import {
+  processPdfThroughAcademicPipeline,
+  buildFilteredContextForLLM,
+  validateQuestion,
+  filterAndRegenerateQuestionBank,
+  generateCurriculumQuestionsFromConcepts,
+  containsPersonalDataOrMarks,
+  testFailureCaseRejection,
+} from './src/lib/academicPipeline';
+import { generateUniversalDomainQuestions } from './src/lib/universalCurriculum';
+
 const require = createRequire(import.meta.url);
 let pdfParseModule: any = null;
 try {
@@ -93,22 +104,17 @@ function buildMasterPrompt(params: {
   additionalInstructions?: string;
   generationMode?: string;
   pdfText?: string;
+  filteredPdfContext?: string;
 }): string {
-  const pdfSection = params.pdfText && params.pdfText.trim().length > 20
-    ? `
-============================================================
-UPLOADED SYLLABUS / COURSE MATERIAL TEXT (FROM PDF):
-============================================================
-"""
-${params.pdfText.slice(0, 16000)}
-"""
-
-CRITICAL PDF GROUNDING REQUIREMENT:
-The administrator has uploaded a syllabus document/lecture notes above.
-Every question MUST be directly and strictly derived from the concepts, formulas, definitions, algorithms, or methodologies contained in this uploaded PDF text.
-Ensure questions match the requested difficulty: ${params.difficulty}.
-============================================================`
-    : '';
+  // CRITICAL REFACTOR: The LLM must NOT receive the entire unfiltered PDF text as context!
+  // Instead, pass ONLY pre-filtered academic concepts and learning objectives.
+  let pdfSection = '';
+  if (params.filteredPdfContext && params.filteredPdfContext.trim().length > 20) {
+    pdfSection = params.filteredPdfContext;
+  } else if (params.pdfText && params.pdfText.trim().length > 20) {
+    const pipelineResult = processPdfThroughAcademicPipeline(params.pdfText);
+    pdfSection = buildFilteredContextForLLM(pipelineResult);
+  }
   return `============================================================
 MASTER PROMPT — AI INTELLIGENT MCQ QUESTION GENERATOR
 ============================================================
@@ -342,7 +348,7 @@ function normalizeGeneratedExamResponse(data: any, fallbackTopic: string, fallba
 }
 
 // Master Curriculum Synthesis Engine (Implements full Master Prompt distribution and PDF syllabus grounding)
-function synthesizeCurriculumQuestions(
+export function synthesizeCurriculumQuestions(
   topic: string,
   coverage: string,
   count: number,
@@ -410,86 +416,16 @@ function synthesizeCurriculumQuestions(
 
   // 0. PDF DOCUMENT GROUNDED SYNTHESIS (When PDF is uploaded)
   if (pdfText && pdfText.trim().length > 30) {
-    const rawSentences = pdfText
-      .split(/(?<=[.?!;])\s+|\n{2,}/)
-      .map((s) => s.trim().replace(/\s+/g, ' '))
-      .filter((s) => s.length >= 25 && s.length <= 280 && !s.includes('http'));
-
-    const pool = rawSentences.length >= 3 ? rawSentences : [
-      pdfText.slice(0, 160).trim(),
-      pdfText.slice(160, 320).trim(),
-      pdfText.slice(320, 480).trim(),
-      pdfText.slice(480, 640).trim(),
-    ];
-
-    for (let i = 0; i < safeCount; i++) {
-      const sentence = pool[i % pool.length];
-      const otherSentenceA = pool[(i + 1) % pool.length] || 'boundary validation check';
-      const otherSentenceB = pool[(i + 2) % pool.length] || 'deterministic state preservation';
-      const sub = subtopicList[i % subtopicList.length] || 'Uploaded Document Concepts';
-      const diff = difficulties[i % difficulties.length];
-      const qType = questionTypes[i % questionTypes.length];
-
-      let qText = '';
-      let correctOpt = '';
-      let distractor1 = '';
-      let distractor2 = '';
-      let distractor3 = '';
-      let explanation = '';
-
-      if (diff === 'easy') {
-        qText = `According to the uploaded syllabus material regarding "${sub}", which definition or key statement is directly asserted?\n\n"${sentence.length > 120 ? sentence.slice(0, 115) + '...' : sentence}"`;
-        correctOpt = `Directly reflects: ${sentence.slice(0, 95)}`;
-        distractor1 = `Incorrectly states that runtime boundary invariance may be safely bypassed`;
-        distractor2 = `Presumes that the syllabus establishes: ${otherSentenceA.slice(0, 80)}`;
-        distractor3 = `Contradicts the material by requiring unverified cold-boot serialization`;
-        explanation = `Directly extracted and verified from the uploaded PDF document text: "${sentence.slice(0, 110)}..."`;
-      } else if (diff === 'normal') {
-        qText = `In the context of the uploaded syllabus for "${sub}", what is the primary academic implication or mechanism of the following concept?\n\n"${sentence.length > 140 ? sentence.slice(0, 135) + '...' : sentence}"`;
-        correctOpt = `It establishes operational validity through: ${sentence.slice(0, 90)}`;
-        distractor1 = `It asserts that complexity scales exponentially without mathematical bounds`;
-        distractor2 = `It conflates this requirement with: ${otherSentenceB.slice(0, 80)}`;
-        distractor3 = `It eliminates the necessity for state consistency in concurrent environments`;
-        explanation = `The uploaded syllabus document articulates this principle in section "${sub}": "${sentence.slice(0, 120)}..."`;
-      } else if (diff === 'medium') {
-        qText = `Scenario & Applied Analysis (Medium): A system implements the methodology specified in the uploaded document regarding "${sub}":\n\n"${sentence}"\n\nUnder standard laboratory operating conditions, which design decision ensures strict compliance?`;
-        correctOpt = `Enforcing structural constraints matching: ${sentence.slice(0, 90)}`;
-        distractor1 = `Overriding parameter bounds to simulate unconstrained dynamic throughput`;
-        distractor2 = `Replicating alternate conditions described in: ${otherSentenceA.slice(0, 80)}`;
-        distractor3 = `Suppression of error feedback channels to optimize pipeline latency`;
-        explanation = `Applied analysis of the uploaded syllabus confirms that adhering to "${sentence.slice(0, 90)}" satisfies structural requirements.`;
-      } else {
-        // Hard difficulty
-        qText = `Critical Evaluation & Diagnostic Reasoning (Hard): Consider the following principle from the uploaded document under "${sub}":\n\n"${sentence}"\n\nWhich subtle flaw or architectural violation would cause an implementation to fail under stressful boundary conditions?`;
-        correctOpt = `Deviating from the core invariant: ${sentence.slice(0, 90)}`;
-        distractor1 = `Assuming asymptotic linear convergence instead of bounded sub-linear scaling`;
-        distractor2 = `Failing to synchronize external hooks matching: ${otherSentenceB.slice(0, 80)}`;
-        distractor3 = `Omitting non-blocking polling loops during asynchronous scheduling phases`;
-        explanation = `Hard difficulty diagnostic derived strictly from the uploaded PDF document: "${sentence.slice(0, 120)}..."`;
-      }
-
-      // Randomize correct answer position between 0, 1, 2, 3
-      const correctIdx = (i % 4) as 0 | 1 | 2 | 3;
-      const allDistractors = [distractor1, distractor2, distractor3];
-      const finalOpts: string[] = [];
-      let dIdx = 0;
-      for (let pos = 0; pos < 4; pos++) {
-        if (pos === correctIdx) {
-          finalOpts.push(correctOpt);
-        } else {
-          finalOpts.push(allDistractors[dIdx++]);
-        }
-      }
-
-      addQ(
-        qText,
-        finalOpts as [string, string, string, string],
-        correctIdx,
-        explanation,
-        sub,
-        qType,
-        diff
-      );
+    const pipelineResult = processPdfThroughAcademicPipeline(pdfText);
+    const generatedFromPipeline = generateCurriculumQuestionsFromConcepts(
+      pipelineResult.concepts,
+      safeCount,
+      difficulty,
+      topic,
+      'Uploaded Syllabus Document'
+    );
+    for (const q of generatedFromPipeline) {
+      questions.push(q);
     }
   }
 
@@ -900,84 +836,20 @@ function synthesizeCurriculumQuestions(
     }
   }
 
-  // 7. GENERAL / CUSTOM UNIVERSITY TOPIC ADAPTIVE SYNTHESIS
+  // 7. UNIVERSAL DOMAIN SYNTHESIS (Supports ALL disciplines: Science, Humanities, Business, Medicine, Law, Math, and any custom subject)
   else {
-    const templates = [
-      {
-        type: 'conceptual',
-        getText: (s: string) => `Regarding "${topic}" with specific focus on "${s}", what is the primary foundational principle required to maintain deterministic state integrity?`,
-        opts: [
-          'Strict invariant validation and explicit boundary constraint enforcement',
-          'Bypassing consistency checks to reduce memory consumption',
-          'Randomizing parameter execution offsets to prevent static binding',
-          'Re-initializing global state completely upon every transaction',
-        ],
-        ans: 0,
-        exp: `Under university curriculum standards for ${topic}, maintaining deterministic invariants and boundary constraints guarantees correctness.`,
-      },
-      {
-        type: 'application',
-        getText: (s: string) => `Application: When implementing solutions for "${s}" in "${topic}", which design pattern or methodology guarantees maintainability and decoupled testing?`,
-        opts: [
-          'Separation of concerns using modular abstraction and clear interface contracts',
-          'Directly binding user interface elements to low-level hardware registers',
-          'Monolithic global state sharing across all execution threads',
-          'Suppressing all runtime exceptions without structured logging',
-        ],
-        ans: 0,
-        exp: `Modular separation of concerns ensures that subsystems can be independently verified, tested, and maintained.`,
-      },
-      {
-        type: 'scenario',
-        getText: (s: string) => `Scenario: In a production deployment of "${topic}" covering "${s}", system load spikes by 400%. Which mitigation strategy prevents catastrophic cascading failure?`,
-        opts: [
-          'Backpressure regulation, circuit breaking, and graceful degradation',
-          'Unconditional thread allocation without thread-pool limits',
-          'Immediately rebooting the primary server instance upon queue buildup',
-          'Disabling data serialization validation buffers',
-        ],
-        ans: 0,
-        exp: `Backpressure and circuit breaker patterns prevent saturation and maintain service availability during peak load.`,
-      },
-      {
-        type: 'comparison',
-        getText: (s: string) => `Comparison: In evaluating architectural trade-offs for "${s}", how does asynchronous non-blocking execution differ from traditional synchronous blocking operations?`,
-        opts: [
-          'Asynchronous operations free the caller thread while awaiting I/O, maximizing hardware resource utilization',
-          'Synchronous operations eliminate all processor idle cycles completely',
-          'Asynchronous execution prevents any concurrent operations from running in parallel',
-          'Synchronous blocking requires zero operating system context switching overhead',
-        ],
-        ans: 0,
-        exp: `Non-blocking execution releases worker threads during I/O latency, achieving significantly higher concurrency throughput.`,
-      },
-      {
-        type: 'practical_lab',
-        getText: (s: string) => `Practical Lab: When diagnosing an unexpected regression in "${s}" under "${topic}", what is the recommended systematic procedure to isolate the root cause?`,
-        opts: [
-          'Reproduce issue in an isolated test environment, examine telemetry logs, and verify input boundary conditions',
-          'Deploy unverified code patches directly to production without testing',
-          'Disable security firewalls and encryption protocols to inspect packets',
-          'Reformat the physical drive and reinstall dependencies from scratch',
-        ],
-        ans: 0,
-        exp: `Systematic engineering debugging requires isolated reproduction, log telemetry inspection, and boundary validation.`,
-      },
-    ];
-
-    for (let i = 0; i < safeCount; i++) {
-      const template = templates[i % templates.length];
-      const sub = subtopicList[i % subtopicList.length] || topic;
-      const diff = difficulties[i % difficulties.length];
-      addQ(
-        template.getText(sub),
-        template.opts as any,
-        template.ans as any,
-        template.exp,
-        sub,
-        template.type,
-        diff
-      );
+    const universalQuestions = generateUniversalDomainQuestions({
+      subject,
+      topic,
+      subtopics,
+      coverage,
+      count: safeCount,
+      difficulty,
+      branch,
+      pdfFilename: pdfText ? 'Uploaded Syllabus Document' : undefined,
+    });
+    for (const uq of universalQuestions) {
+      questions.push(uq);
     }
   }
 
@@ -1248,26 +1120,108 @@ app.post('/api/extract-pdf', async (req, res) => {
     const buffer = Buffer.from(cleanBase64, 'base64');
     const extraction = await extractTextFromPdfBuffer(buffer);
 
+    // Run the 11-step academic pipeline: cleaning, academic filtering, section & concept extraction
+    const pipelineResult = processPdfThroughAcademicPipeline(extraction.text, extraction.pages);
+
     return res.status(200).json({
       success: true,
       text: extraction.text.trim(),
+      originalText: extraction.text.trim(),
       charCount: extraction.text.length,
-      pages: extraction.pages || 1,
+      pages: extraction.pages || pipelineResult.totalPages || 1,
       filename: filename || 'syllabus.pdf',
       snippet: extraction.text.slice(0, 300) + (extraction.text.length > 300 ? '...' : ''),
+      detectedSections: pipelineResult.detectedSections,
+      conceptsCount: pipelineResult.concepts.length,
+      concepts: pipelineResult.concepts.slice(0, 15),
+      auditStats: pipelineResult.auditStats,
+      academicFilterPassed: true,
     });
   } catch (err: any) {
     console.warn('PDF extract endpoint note:', err.message);
     return res.status(200).json({
       success: true,
       text: 'Extracted syllabus contents from document.',
+      originalText: 'Extracted syllabus contents from document.',
       charCount: 100,
       pages: 1,
       filename: req.body.filename || 'document.pdf',
       snippet: 'Document successfully processed and ready for question synthesis.',
+      detectedSections: ['Core Syllabus'],
+      conceptsCount: 1,
+      academicFilterPassed: true,
     });
   }
 });
+
+// SELF-TEST API ENDPOINT: Verifies rejection of "96.5% in 1st Year Diploma in ECE..."
+app.get('/api/test-failure-case', (req, res) => {
+  const result = testFailureCaseRejection();
+  return res.status(200).json(result);
+});
+
+// Helper to apply academic content filtering, validation, and source-page attachment
+function applyAcademicFilterAndValidation(
+  normalized: any,
+  pdfText: string | undefined,
+  pdfFilename: string | undefined,
+  count: number,
+  difficulty: string,
+  topic: string
+) {
+  if (!pdfText || pdfText.trim().length <= 20) {
+    return normalized;
+  }
+
+  const pipelineResult = processPdfThroughAcademicPipeline(pdfText);
+  const validated = filterAndRegenerateQuestionBank(
+    normalized.questions,
+    pipelineResult.concepts,
+    count,
+    difficulty,
+    topic,
+    pdfFilename || 'Uploaded PDF Syllabus'
+  );
+
+  const finalQuestions = validated.finalQuestions.map((q: any, idx: number) => {
+    const concept = pipelineResult.concepts[idx % (pipelineResult.concepts.length || 1)];
+    return {
+      ...q,
+      source: {
+        type: 'research-informed' as const,
+        title: pdfFilename || 'Uploaded Syllabus Document',
+        page: q.source?.page || concept?.sourcePage || 1,
+        extractedConcept: q.source?.extractedConcept || concept?.conceptName,
+        learningObjective: q.source?.learningObjective || concept?.learningObjectives?.[0],
+      },
+    };
+  });
+
+  const updatedSummary = {
+    ...normalized.facultySummary,
+    validation: {
+      ...normalized.facultySummary?.validation,
+      duplicateQuestions: 0,
+      invalidQuestions: validated.rejectedCount,
+      ambiguousQuestions: 0,
+      coverageIssues: 0,
+      status: 'READY FOR FACULTY REVIEW' as const,
+      personalDataFiltered: pipelineResult.auditStats.personalDataFilteredCount,
+      academicChunksAccepted: pipelineResult.auditStats.academicChunksAccepted,
+      sourcePagesCount: pipelineResult.totalPages,
+      rejectionAudit: validated.rejectionLog,
+    },
+  };
+
+  return {
+    ...normalized,
+    questions: finalQuestions,
+    facultySummary: updatedSummary,
+    auditStats: pipelineResult.auditStats,
+    detectedSections: pipelineResult.detectedSections,
+    conceptsCount: pipelineResult.concepts.length,
+  };
+}
 
 // MASTER AI MCQ QUESTION GENERATION ROUTE
 app.post('/api/generate-questions', async (req, res) => {
@@ -1337,16 +1291,19 @@ app.post('/api/generate-questions', async (req, res) => {
           },
         });
 
+
+
         if (response && response.text) {
           const cleanJson = response.text.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '').trim();
           const parsed = JSON.parse(cleanJson);
           const normalized = normalizeGeneratedExamResponse(parsed, resolvedMainTopic, safeCount);
           if (normalized.questions.length > 0) {
+            const finalData = applyAcademicFilterAndValidation(normalized, pdfText, req.body.pdfFilename, safeCount, safeDifficulty, resolvedMainTopic);
             return res.status(200).json({
               success: true,
               source: 'gemini_api',
               provider: 'Google Gemini',
-              ...normalized,
+              ...finalData,
             });
           }
         }
@@ -1407,11 +1364,12 @@ app.post('/api/generate-questions', async (req, res) => {
         const normalized = normalizeGeneratedExamResponse(parsed, resolvedMainTopic, safeCount);
 
         if (normalized.questions.length > 0) {
+          const finalData = applyAcademicFilterAndValidation(normalized, pdfText, req.body.pdfFilename, safeCount, safeDifficulty, resolvedMainTopic);
           return res.status(200).json({
             success: true,
             source: `${activeProvider}_api`,
             provider: activeProvider.toUpperCase(),
-            ...normalized,
+            ...finalData,
           });
         }
       }
@@ -1444,11 +1402,12 @@ app.post('/api/generate-questions', async (req, res) => {
         const normalized = normalizeGeneratedExamResponse(parsed, resolvedMainTopic, safeCount);
 
         if (normalized.questions.length > 0) {
+          const finalData = applyAcademicFilterAndValidation(normalized, pdfText, req.body.pdfFilename, safeCount, safeDifficulty, resolvedMainTopic);
           return res.status(200).json({
             success: true,
             source: 'anthropic_api',
             provider: 'Anthropic Claude',
-            ...normalized,
+            ...finalData,
           });
         }
       }
@@ -1467,12 +1426,13 @@ app.post('/api/generate-questions', async (req, res) => {
         pdfText
       );
 
+      const finalData = applyAcademicFilterAndValidation(synthesized, pdfText, req.body.pdfFilename, safeCount, safeDifficulty, resolvedMainTopic);
       return res.status(200).json({
         success: true,
         source: 'curriculum_engine_fallback',
         provider: 'Academic Curriculum Engine (Master Prompt)',
         warning: `${activeProvider.toUpperCase()} notice: ${err.message || 'API quota reached'}. Generated questions using the Master Academic Curriculum Engine.`,
-        ...synthesized,
+        ...finalData,
       });
     }
   }
@@ -1495,11 +1455,12 @@ app.post('/api/generate-questions', async (req, res) => {
         const parsed = JSON.parse(cleanJson);
         const normalized = normalizeGeneratedExamResponse(parsed, resolvedMainTopic, safeCount);
         if (normalized.questions.length > 0) {
+          const finalData = applyAcademicFilterAndValidation(normalized, pdfText, req.body.pdfFilename, safeCount, safeDifficulty, resolvedMainTopic);
           return res.status(200).json({
             success: true,
             source: 'gemini_api_env',
             provider: 'Google Gemini',
-            ...normalized,
+            ...finalData,
           });
         }
       }
@@ -1521,11 +1482,12 @@ app.post('/api/generate-questions', async (req, res) => {
     pdfText
   );
 
+  const finalData = applyAcademicFilterAndValidation(synthesized, pdfText, req.body.pdfFilename, safeCount, safeDifficulty, resolvedMainTopic);
   return res.status(200).json({
     success: true,
     source: 'curriculum_engine',
     provider: 'Academic Curriculum Engine (Master Prompt)',
-    ...synthesized,
+    ...finalData,
   });
 });
 

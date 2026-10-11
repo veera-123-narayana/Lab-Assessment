@@ -2,27 +2,44 @@
 
 @layer base {
   :root {
-    --bg-primary: #02040A;
-    --bg-secondary: #050914;
-    --blue-deep: #071A3D;
-    --blue-electric: #1677FF;
-    --blue-bright: #38A8FF;
-    --cyan: #5BE7FF;
+    --bg-primary: #02050B;
+    --bg-secondary: #031225;
+    --blue-deep: #031225;
+    --blue-electric: #087EFF;
+    --blue-bright: #21A7FF;
+    --cyan: #5DE8FF;
     --glass-bg: rgba(255, 255, 255, 0.045);
-    --glass-border: rgba(255, 255, 255, 0.12);
-    --blue-glow: rgba(22, 119, 255, 0.35);
-    --cyan-glow: rgba(91, 231, 255, 0.25);
+    --glass-border: rgba(80, 180, 255, 0.18);
+    --blue-glow: rgba(0, 120, 255, 0.35);
+    --cyan-glow: rgba(40, 220, 255, 0.22);
   }
 
   body {
-    background-color: #02040A;
+    background-color: #02050B;
     color: #FFFFFF;
     font-family: 'Inter', system-ui, -apple-system, sans-serif;
     overflow-x: hidden;
   }
 }
 
-/* Futuristic Technical Typography Classes */
+/* 3D Perspective & Spatial Environment */
+.perspective-1400 {
+  perspective: 1400px;
+}
+
+.perspective-1200 {
+  perspective: 1200px;
+}
+
+.preserve-3d {
+  transform-style: preserve-3d;
+}
+
+.backface-hidden {
+  backface-visibility: hidden;
+}
+
+/* Futuristic Technical Typography */
 .font-display {
   font-family: 'Orbitron', 'Space Grotesk', system-ui, sans-serif;
   letter-spacing: 0.04em;
@@ -36,29 +53,80 @@
   font-family: 'JetBrains Mono', monospace;
 }
 
-/* Glassmorphism Surface Classes */
-.glass-panel {
-  background: rgba(255, 255, 255, 0.04);
+/* 3D Floating Examination Panel (Master Prompt Specification) */
+.glass-panel-3d {
+  background: rgba(8, 15, 28, 0.62);
   backdrop-filter: blur(18px);
   -webkit-backdrop-filter: blur(18px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(70, 180, 255, 0.18);
+  border-radius: 22px;
+  box-shadow: 0 30px 100px rgba(0, 40, 120, 0.30);
+}
+
+/* Layered Glassmorphism Surfaces */
+.glass-panel {
+  background: rgba(255, 255, 255, 0.045);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border: 1px solid rgba(80, 180, 255, 0.18);
   box-shadow: 0 20px 80px rgba(0, 0, 0, 0.45);
 }
 
 .glass-panel-elevated {
-  background: rgba(255, 255, 255, 0.06);
+  background: rgba(8, 15, 28, 0.68);
   backdrop-filter: blur(24px);
   -webkit-backdrop-filter: blur(24px);
-  border: 1px solid rgba(91, 231, 255, 0.2);
-  box-shadow: 0 25px 90px rgba(0, 0, 0, 0.6), 0 0 35px rgba(22, 119, 255, 0.15);
+  border: 1px solid rgba(91, 231, 255, 0.24);
+  box-shadow: 0 30px 100px rgba(0, 40, 120, 0.35), 0 0 30px rgba(8, 126, 255, 0.15);
 }
 
 .glass-panel-glow {
-  background: rgba(7, 26, 61, 0.4);
+  background: rgba(3, 18, 37, 0.55);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   border: 1px solid rgba(91, 231, 255, 0.35);
-  box-shadow: 0 0 40px rgba(22, 119, 255, 0.25), inset 0 0 25px rgba(91, 231, 255, 0.08);
+  box-shadow: 0 0 40px rgba(8, 126, 255, 0.28), inset 0 0 25px rgba(91, 231, 255, 0.08);
+}
+
+/* Focused Field Depth Lift */
+.input-3d-field {
+  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.25s ease, border-color 0.25s ease;
+}
+
+.input-3d-field:focus {
+  transform: translateY(-1px) translateZ(8px);
+  border-color: rgba(91, 231, 255, 0.6);
+  box-shadow: 0 0 20px rgba(8, 126, 255, 0.35), inset 0 0 10px rgba(91, 231, 255, 0.12);
+}
+
+/* Desktop Option 3D Hover & Focus */
+@media (hover: hover) and (pointer: fine) {
+  .option-3d-card {
+    transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.22s ease, border-color 0.22s ease, background-color 0.22s ease;
+  }
+  .option-3d-card:hover {
+    transform: translateX(4px) translateZ(8px);
+    box-shadow: 0 8px 24px rgba(8, 126, 255, 0.2);
+    border-color: rgba(91, 231, 255, 0.35);
+  }
+}
+
+/* Subtle background grid */
+.bg-cyber-grid {
+  background-size: 40px 40px;
+  background-image: 
+    linear-gradient(to right, rgba(93, 232, 255, 0.035) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(93, 232, 255, 0.035) 1px, transparent 1px);
+}
+
+/* Radial Focal Glow */
+.bg-focal-glow {
+  background: radial-gradient(circle at 50% 30%, rgba(8, 126, 255, 0.22) 0%, rgba(3, 18, 37, 0.12) 50%, transparent 80%);
+}
+
+/* Ambient Blue Floor Glow */
+.bg-floor-glow {
+  background: radial-gradient(ellipse at 50% 90%, rgba(8, 126, 255, 0.25) 0%, rgba(93, 232, 255, 0.1) 40%, transparent 75%);
 }
 
 /* Cyber Scanning Line Animation */
@@ -78,19 +146,6 @@
 
 .animate-scan-line {
   animation: cyberScan 3s cubic-bezier(0.16, 1, 0.3, 1) infinite;
-}
-
-/* Subtle background grid */
-.bg-cyber-grid {
-  background-size: 40px 40px;
-  background-image: 
-    linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
-}
-
-/* Radial Focal Glow */
-.bg-focal-glow {
-  background: radial-gradient(circle at 50% 30%, rgba(22, 119, 255, 0.18) 0%, rgba(7, 26, 61, 0.08) 50%, transparent 80%);
 }
 
 /* Respect reduced motion */

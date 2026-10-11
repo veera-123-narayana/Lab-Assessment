@@ -4,6 +4,8 @@ export type QuestionType =
   | 'application'
   | 'scenario'
   | 'comparison'
+  | 'analytical'
+  | 'calculation'
   | 'output_based'
   | 'code_based'
   | 'debugging'
@@ -22,6 +24,9 @@ export interface QuestionSource {
   type: 'original' | 'research-informed' | 'admin_upload';
   title?: string;
   url?: string;
+  page?: number;
+  extractedConcept?: string;
+  learningObjective?: string;
 }
 
 export interface Question {
@@ -62,6 +67,10 @@ export interface FacultyReviewSummary {
     ambiguousQuestions: number;
     coverageIssues: number;
     status: 'READY FOR FACULTY REVIEW' | 'NEEDS_REVISION';
+    personalDataFiltered?: number;
+    academicChunksAccepted?: number;
+    sourcePagesCount?: number;
+    rejectionAudit?: string[];
   };
 }
 
@@ -83,7 +92,7 @@ export interface Exam {
   totalMarks: number;
   additionalInstructions?: string;
   generationMode?: 'ai_generated' | 'research_informed' | 'admin_question_bank';
-  creationMethod?: 'ai_topic' | 'pdf_upload' | 'custom_admin';
+  creationMethod?: 'mode_a_topic' | 'mode_b_pdf' | 'mode_c_topic_pdf' | 'ai_topic' | 'pdf_upload' | 'custom_admin';
   pdfFilename?: string;
   facultySummary?: FacultyReviewSummary;
   createdAt: string;

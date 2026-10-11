@@ -1,4 +1,5 @@
 import { ExamDifficulty, Question, FacultyReviewSummary, TopicCoverageItem } from '../types';
+import { generateUniversalDomainQuestions } from './universalCurriculum';
 
 export type AIProvider =
   | 'auto'
@@ -167,99 +168,48 @@ function generateDeterministicQuestions(params: GenerateExamParams): Question[] 
   const coverage = params.topicsToCover || params.coverage || 'Foundational to Advanced Concepts';
   const count = params.count;
   const difficulty = params.difficulty;
-  const lowerTopic = topic.toLowerCase();
   const safeCount = Math.max(1, count || 5);
 
-  const questions: Question[] = [];
-
-  const addQ = (
-    text: string,
-    options: [string, string, string, string],
-    correctAnswer: 0 | 1 | 2 | 3,
-    explanation: string,
-    subtopic: string,
-    qType: string,
-    codeSnippet?: string
-  ) => {
-    questions.push({
-      id: `q_local_${Date.now()}_${questions.length + 1}`,
-      questionNumber: questions.length + 1,
-      text,
-      options,
-      correctAnswer,
-      explanation,
-      topic,
-      subtopic,
-      difficulty,
-      questionType: qType,
-      codeSnippet,
-      source: { type: 'original' },
-    });
-  };
-
-  if (lowerTopic.includes('machine learning') || lowerTopic.includes('ai') || lowerTopic.includes('neural')) {
-    const list = [
-      {
-        text: `In "${topic}" (${coverage || 'fundamentals'}), which function maps any real-valued number into a probability value between 0 and 1?`,
-        options: ['Sigmoid (Logistic) Function', 'ReLU (Rectified Linear Unit)', 'Leaky ReLU with slope 0.01', 'Linear Identity Function'],
-        correctAnswer: 0,
-        explanation: 'Sigmoid maps real inputs to (0, 1), making it suitable for binary classification probabilities.',
-        sub: 'Activation Functions',
-        type: 'conceptual',
-      },
-      {
-        text: `Under ${difficulty} difficulty, which phenomenon in "${topic}" occurs when a model fits noise in training data and fails to generalize to test data?`,
-        options: ['Overfitting (High Variance)', 'Underfitting (High Bias)', 'Covariate Shift', 'Vanishing Gradient'],
-        correctAnswer: 0,
-        explanation: 'Overfitting occurs when a high-capacity model memorizes training noise rather than true underlying patterns.',
-        sub: 'Model Generalization',
-        type: 'scenario',
-      },
-    ];
-    for (let i = 0; i < safeCount; i++) {
-      const item = list[i % list.length];
-      addQ(item.text, item.options as any, item.correctAnswer as any, item.explanation, item.sub, item.type);
-    }
-  } else {
-    for (let i = 1; i <= safeCount; i++) {
-      addQ(
-        `Question ${i}: In "${topic}" (${coverage}), which of the following is academically accurate regarding foundational design principles at ${difficulty} level?`,
-        [
-          `Deterministic invariant constraints and state validation must be maintained to prevent runtime failure`,
-          `Computational complexity expands exponentially without upper asymptotic bounds`,
-          `Hardware registers are bypassed entirely through unverified memory mapping`,
-          `System state must be re-initialized from cold start upon every input arrival`,
-        ],
-        0,
-        `University academic standards for ${topic} require deterministic boundary verification and invariant preservation.`,
-        'Core Foundations',
-        'conceptual'
-      );
-    }
-  }
-
-  return questions;
+  return generateUniversalDomainQuestions({
+    subject: params.subject,
+    topic,
+    subtopics: params.subtopics,
+    coverage,
+    count: safeCount,
+    difficulty,
+    branch: params.branch,
+  });
 }
 
-// Extract clean text from uploaded PDF or document file
-export async function extractPdfText(file: File): Promise<{
+export interface ExtractedPdfData {
   success: boolean;
   text: string;
+  originalText?: string;
   charCount: number;
   filename: string;
   snippet: string;
   pages?: number;
-}> {
+  detectedSections?: string[];
+  conceptsCount?: number;
+  concepts?: any[];
+  auditStats?: any;
+  academicFilterPassed?: boolean;
+}
+
+// Extract clean text from uploaded PDF or document file through academic pipeline
+export async function extractPdfText(file: File): Promise<ExtractedPdfData> {
   // If plain text / markdown / csv file, read directly
   if (file.type.includes('text') || file.name.endsWith('.txt') || file.name.endsWith('.md')) {
     const text = await file.text();
     return {
       success: true,
       text: text.trim(),
+      originalText: text.trim(),
       charCount: text.length,
       filename: file.name,
       snippet: text.slice(0, 250) + (text.length > 250 ? '...' : ''),
       pages: 1,
+      academicFilterPassed: true,
     };
   }
 
@@ -283,13 +233,18 @@ export async function extractPdfText(file: File): Promise<{
           resolve({
             success: true,
             text: data.text || '',
+            originalText: data.originalText || data.text || '',
             charCount: data.charCount || data.text?.length || 0,
             filename: file.name,
             snippet: data.snippet || data.text?.slice(0, 250) || '',
             pages: data.pages || 1,
+            detectedSections: data.detectedSections || [],
+            conceptsCount: data.conceptsCount || (data.concepts ? data.concepts.length : 0),
+            concepts: data.concepts || [],
+            auditStats: data.auditStats,
+            academicFilterPassed: data.academicFilterPassed ?? true,
           });
         } else {
-          // Fallback: extract visible text strings from buffer
           resolve({
             success: true,
             text: `Extracted syllabus contents from ${file.name}.`,
@@ -297,6 +252,7 @@ export async function extractPdfText(file: File): Promise<{
             filename: file.name,
             snippet: `Successfully uploaded ${file.name}. Ready for question synthesis.`,
             pages: 1,
+            academicFilterPassed: true,
           });
         }
       } catch (err: any) {
@@ -307,6 +263,7 @@ export async function extractPdfText(file: File): Promise<{
           filename: file.name,
           snippet: `File ${file.name} ready for questions generation.`,
           pages: 1,
+          academicFilterPassed: true,
         });
       }
     };

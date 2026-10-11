@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { motion } from 'motion/react';
 import { ShieldCheck, Cpu, Sparkles } from 'lucide-react';
+import ParticleField from './ParticleField';
 
 interface ExamInitializationProps {
   examTitle: string;
@@ -55,25 +56,26 @@ export const ExamInitialization: React.FC<ExamInitializationProps> = ({
       animate={{ opacity: 1 }}
       exit={{ opacity: 0, scale: 1.05 }}
       transition={{ duration: 0.4 }}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-[#02040A] text-white p-6"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-[#02050B] text-white p-6 perspective-1400"
     >
+      <ParticleField density="dense" color="mixed" showFloorRipples={true} />
       {/* Background glow circle */}
-      <div className="absolute w-[450px] h-[450px] rounded-full bg-blue-600/15 blur-[120px] pointer-events-none" />
+      <div className="absolute w-[500px] h-[500px] rounded-full bg-blue-600/20 blur-[140px] pointer-events-none" />
 
-      <div className="relative z-10 w-full max-w-md text-center">
+      <div className="relative z-10 w-full max-w-md text-center glass-panel-3d p-8 rounded-3xl">
         {/* Holographic Circular Scanner */}
         <div className="relative w-28 h-28 mx-auto mb-8 flex items-center justify-center">
           {/* Outer rotating dashed ring */}
           <motion.div
             animate={{ rotate: 360 }}
             transition={{ duration: 4, repeat: Infinity, ease: 'linear' }}
-            className="absolute inset-0 rounded-full border-2 border-dashed border-cyan-400/40"
+            className="absolute inset-0 rounded-full border-2 border-dashed border-[#5DE8FF]/60"
           />
           {/* Inner counter-rotating ring */}
           <motion.div
             animate={{ rotate: -360 }}
             transition={{ duration: 2.5, repeat: Infinity, ease: 'linear' }}
-            className="absolute inset-2 rounded-full border border-blue-500/60 border-t-transparent"
+            className="absolute inset-2 rounded-full border border-[#21A7FF] border-t-transparent"
           />
           {/* Pulsing center icon */}
           <motion.div
@@ -81,26 +83,26 @@ export const ExamInitialization: React.FC<ExamInitializationProps> = ({
             transition={{ duration: 1.5, repeat: Infinity, ease: 'easeInOut' }}
             className="w-14 h-14 rounded-full bg-gradient-to-tr from-blue-600/40 to-cyan-500/40 backdrop-blur-md flex items-center justify-center border border-cyan-400/60 shadow-lg shadow-cyan-500/25"
           >
-            <Cpu className="w-7 h-7 text-cyan-300" />
+            <Cpu className="w-7 h-7 text-[#5DE8FF]" />
           </motion.div>
         </div>
 
-        {/* LABORA AI Header */}
+        {/* APOGEE ASSESSMENT Header */}
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.1 }}
           className="space-y-1.5 mb-6"
         >
-          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-500/15 border border-blue-500/30 text-[11px] font-mono tracking-widest text-cyan-300 uppercase mb-1">
-            <Sparkles className="w-3 h-3 text-cyan-400" />
-            <span>LABORA AI ASSESSMENT HUD</span>
+          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-500/15 border border-cyan-400/30 text-[11px] font-mono tracking-widest text-[#5DE8FF] uppercase mb-1">
+            <Sparkles className="w-3 h-3 text-[#5DE8FF]" />
+            <span>APOGEE HUD INITIALIZER</span>
           </div>
           <h2 className="text-xl font-bold font-display tracking-wide text-white">
             {examTitle}
           </h2>
           <p className="text-xs text-slate-400 font-mono">
-            CODE: <span className="text-cyan-400">{examCode}</span> • {totalQuestions} QUESTIONS • {durationMinutes} MINS
+            CODE: <span className="text-[#5DE8FF]">{examCode}</span> • {totalQuestions} QUESTIONS • {durationMinutes} MINS
           </p>
         </motion.div>
 

@@ -19,12 +19,14 @@ import {
   ArrowRight,
   Cpu,
   FileText,
-  Edit3
+  Edit3,
+  HelpCircle,
+  Activity
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Exam, Question, StudentRegistration, StudentSubmission, ViolationEvent } from '../types';
 import { checkPreviousSubmission, getStoredExams, recordSubmission } from '../lib/storage';
-import ParticleField from './ParticleField';
+import ParticleField, { triggerParticleWarp } from './ParticleField';
 import ExamInitialization from './ExamInitialization';
 import ResultCelebration from './ResultCelebration';
 
@@ -45,7 +47,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
   const [selectedExamId, setSelectedExamId] = useState<string>('');
   const [examState, setExamState] = useState<ExamState>('registration');
   
-  // Registration Form
+  // Registration Form State
   const [formData, setFormData] = useState<StudentRegistration>({
     fullName: '',
     email: '',
@@ -57,12 +59,20 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
   const [formError, setFormError] = useState<string>('');
   const [previousSubmissionData, setPreviousSubmissionData] = useState<StudentSubmission | null>(null);
 
+  // Mouse Parallax for Entry Portal (Desktop only)
+  const [mouseTilt, setMouseTilt] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+
   // Active Exam Runtime State
   const [activeExam, setActiveExam] = useState<Exam | null>(null);
   const [shuffledQuestions, setShuffledQuestions] = useState<Question[]>([]);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState<number>(0);
   const [selectedAnswers, setSelectedAnswers] = useState<Record<string, number>>({});
   const [tempSelection, setTempSelection] = useState<number | null>(null);
+  
+  // 3D Question Navigation Transition Direction: 1 = Forward (Save & Next), -1 = Backward (Previous)
+  const [navDirection, setNavDirection] = useState<number>(1);
+  const [isNavigating, setIsNavigating] = useState<boolean>(false);
+  const [showCyanPulse, setShowCyanPulse] = useState<boolean>(false);
   
   // Timer State
   const [timeLeftSeconds, setTimeLeftSeconds] = useState<number>(0);
@@ -86,6 +96,23 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
     }
   }, []);
 
+  // Desktop Mouse Parallax Handler for Entry Portal
+  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (window.innerWidth < 768) return; // Disable on mobile
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = (e.clientX - rect.left) / rect.width - 0.5;
+    const y = (e.clientY - rect.top) / rect.height - 0.5;
+    // Rotate max ±2deg on X and ±3deg on Y
+    setMouseTilt({
+      x: -y * 4,
+      y: x * 6,
+    });
+  };
+
+  const handleMouseLeave = () => {
+    setMouseTilt({ x: 0, y: 0 });
+  };
+
   // Check duplicate submission on rollNumber / exam change
   const handleCheckAttempt = (roll: string, examId: string) => {
     if (!roll.trim() || !examId) return;
@@ -96,6 +123,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
     }
   };
 
+  // Submit registration form with 3D transition
   const handleStartRegistration = (e: React.FormEvent) => {
     e.preventDefault();
     setFormError('');
@@ -111,7 +139,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
       return;
     }
 
-    // Check single attempt rule
+    // Single attempt rule check
     const existing = checkPreviousSubmission(formData.rollNumber, exam.id);
     if (existing) {
       setPreviousSubmissionData(existing);
@@ -120,18 +148,22 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
     }
 
     setActiveExam(exam);
+    // Trigger 3D warp transition effect
+    triggerParticleWarp(300);
     setExamState('rules');
   };
 
-  // Launch the exam with fullscreen and jumbled questions
+  // Launch exam with fullscreen and randomized questions
   const handleStartExam = async () => {
     if (!activeExam) return;
 
-    // Jumble / shuffle questions and option order for each student uniquely (Master Prompt Section 38 & 47)
+    // Trigger energy tunnel acceleration
+    triggerParticleWarp(400);
+
+    // Randomize questions & option order for this candidate
     const shuffled = [...activeExam.questions]
       .sort(() => Math.random() - 0.5)
       .map((q) => {
-        // Randomize option order while preserving correct answer mapping
         const indexedOptions = q.options.map((opt, i) => ({
           text: opt,
           isCorrect: i === q.correctAnswer,
@@ -146,6 +178,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
           correctAnswer: newCorrectAnswer >= 0 ? newCorrectAnswer : 0,
         };
       });
+
     setShuffledQuestions(shuffled);
     setCurrentQuestionIndex(0);
     setSelectedAnswers({});
@@ -154,13 +187,13 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
     setViolationCount(0);
     setTimeLeftSeconds(activeExam.durationMinutes * 60);
 
-    // Request full screen
+    // Request fullscreen
     try {
       if (document.documentElement.requestFullscreen) {
         await document.documentElement.requestFullscreen();
       }
     } catch (err) {
-      console.warn('Fullscreen request bypassed or permission restricted in iframe:', err);
+      console.warn('Fullscreen request bypassed in iframe environment:', err);
     }
 
     setExamState('initializing');
@@ -185,7 +218,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
 
         const max = activeExam?.maxViolations || 3;
         if (nextCount >= max) {
-          // Auto submit immediately due to limit reached
+          // Auto submit immediately on maximum infractions reached
           setViolationModalMessage(`CRITICAL: Proctoring violation limit (${max}/${max}) reached! ${details}. Your exam is being automatically submitted.`);
           setShowViolationModal(true);
           setTimeout(() => {
@@ -222,7 +255,6 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
     };
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Prevent developer tools, copy, paste, alt-tab, esc
       if (
         (e.ctrlKey || e.metaKey) &&
         (e.key === 'c' || e.key === 'v' || e.key === 'x' || e.key === 'u' || e.key === 'a')
@@ -287,9 +319,9 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
     }
   }, [currentQuestionIndex, shuffledQuestions, selectedAnswers]);
 
-  // Save answer and move to next question
+  // Save answer and move to next question with exact 3D spatial transition
   const handleSaveAndNext = () => {
-    if (tempSelection === null) return;
+    if (tempSelection === null || isNavigating) return;
     const currentQ = shuffledQuestions[currentQuestionIndex];
     const updated = {
       ...selectedAnswers,
@@ -298,11 +330,77 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
     setSelectedAnswers(updated);
 
     if (currentQuestionIndex < shuffledQuestions.length - 1) {
+      setIsNavigating(true);
+      setNavDirection(1); // Moving forward into depth
+      setShowCyanPulse(true);
+      triggerParticleWarp(280);
+
+      setTimeout(() => {
+        setShowCyanPulse(false);
+      }, 160);
+
+      // Advance index
       setCurrentQuestionIndex((prev) => prev + 1);
+      setTimeout(() => {
+        setIsNavigating(false);
+      }, 450);
     }
   };
 
-  // Submit assessment
+  // Navigate to previous question
+  const handlePreviousQuestion = () => {
+    if (currentQuestionIndex === 0 || isNavigating) return;
+
+    // Preserve current selection if made
+    if (tempSelection !== null && shuffledQuestions[currentQuestionIndex]) {
+      setSelectedAnswers((prev) => ({
+        ...prev,
+        [shuffledQuestions[currentQuestionIndex].id]: tempSelection,
+      }));
+    }
+
+    setIsNavigating(true);
+    setNavDirection(-1); // Moving backward in Z/X space
+    setShowCyanPulse(true);
+    triggerParticleWarp(220);
+
+    setTimeout(() => {
+      setShowCyanPulse(false);
+    }, 160);
+
+    setCurrentQuestionIndex((prev) => prev - 1);
+    setTimeout(() => {
+      setIsNavigating(false);
+    }, 450);
+  };
+
+  // Jump to specific question node in navigator
+  const handleJumpToQuestion = (targetIndex: number) => {
+    if (targetIndex === currentQuestionIndex || isNavigating) return;
+
+    if (tempSelection !== null && shuffledQuestions[currentQuestionIndex]) {
+      setSelectedAnswers((prev) => ({
+        ...prev,
+        [shuffledQuestions[currentQuestionIndex].id]: tempSelection,
+      }));
+    }
+
+    setIsNavigating(true);
+    setNavDirection(targetIndex > currentQuestionIndex ? 1 : -1);
+    setShowCyanPulse(true);
+    triggerParticleWarp(240);
+
+    setTimeout(() => {
+      setShowCyanPulse(false);
+    }, 150);
+
+    setCurrentQuestionIndex(targetIndex);
+    setTimeout(() => {
+      setIsNavigating(false);
+    }, 450);
+  };
+
+  // Submit assessment with final calculation
   const handleFinalSubmit = (
     forcedStatus: 'submitted' | 'terminated_due_to_violations' | 'timed_out' = 'submitted',
     customViolations?: ViolationEvent[]
@@ -322,7 +420,6 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
     }
 
     const vList = customViolations || violations;
-    // Calculate score
     let score = 0;
     activeExam.questions.forEach((q) => {
       if (finalAnswers[q.id] === q.correctAnswer) {
@@ -355,10 +452,10 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
     setFinalSubmission(submission);
     setShowViolationModal(false);
     setShowFinishConfirmModal(false);
+    triggerParticleWarp(400);
     setExamState('completed');
   };
 
-  // Format MM:SS
   const formatTime = (secs: number) => {
     const mins = Math.floor(secs / 60);
     const rem = secs % 60;
@@ -370,41 +467,57 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
   return (
     <div
       ref={examContainerRef}
-      className={`min-h-screen relative flex flex-col font-sans transition-colors duration-300 ${
-        isDark ? 'bg-[#02040A] text-white' : 'bg-slate-50 text-slate-900'
+      className={`min-h-screen relative flex flex-col font-sans transition-colors duration-300 perspective-1400 ${
+        isDark ? 'bg-[#02050B] text-white' : 'bg-slate-50 text-slate-900'
       }`}
     >
-      {/* Background High-Tech Ambient Particle Field & Light */}
-      <ParticleField density="medium" color="mixed" />
-      <div className="absolute inset-0 bg-cyber-grid pointer-events-none opacity-40 z-0" />
-      <div className="absolute inset-0 bg-focal-glow pointer-events-none z-0" />
+      {/* 3D PARTICLE ENVIRONMENT & FLOOR RIPPLE RINGS (Master Prompt Visual Reference) */}
+      <ParticleField density="medium" color="mixed" showFloorRipples={true} />
+      
+      {/* Layer 2: Blurred Cyan / Blue Ambient Light Sphere */}
+      <div className="fixed top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[700px] h-[550px] rounded-full bg-blue-600/15 blur-[160px] pointer-events-none z-0" />
+      <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-[850px] h-[350px] rounded-full bg-cyan-500/10 blur-[140px] pointer-events-none z-0" />
 
-      {/* Ambient Tech Video Overlay */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none z-0 opacity-20">
-        <video
-          className="w-full h-full object-cover"
-          src="https://d8j0ntlcm91z4.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/hf_20260813_092641_de52eb87-daf2-41db-92cb-7a56eae012a5.mp4"
-          autoPlay
-          loop
-          muted
-          playsInline
-        />
-        <div className="absolute inset-0 bg-gradient-to-b from-[#02040A]/85 via-[#02040A]/60 to-[#02040A]" />
-      </div>
+      {/* Layer 4: Subtle Cyber Grid */}
+      <div className="fixed inset-0 bg-cyber-grid pointer-events-none opacity-40 z-0" />
+      <div className="fixed inset-0 bg-focal-glow pointer-events-none z-0" />
 
-      {/* Header bar (Students see only student assessment branding, NO prominent admin buttons) */}
-      <header className="relative z-10 w-full max-w-7xl mx-auto px-4 sm:px-8 pt-4 pb-2 flex items-center justify-between">
+      {/* Soft Cyan Energy Flash for Navigation Bridge */}
+      <AnimatePresence>
+        {showCyanPulse && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.16 }}
+            className="fixed inset-0 pointer-events-none z-40 bg-radial from-cyan-400/20 via-blue-500/10 to-transparent"
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Header bar (Candidate Assessment HUD) */}
+      <motion.header
+        initial={{ opacity: 0, y: -20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.6, delay: 0.4 }}
+        className="relative z-10 w-full max-w-7xl mx-auto px-4 sm:px-8 pt-4 pb-2 flex items-center justify-between"
+      >
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-500/25">
-            <Sparkles className="w-5 h-5 text-white" />
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#087EFF] via-[#21A7FF] to-[#5DE8FF] flex items-center justify-center shadow-lg shadow-blue-500/30">
+            <Sparkles className="w-5 h-5 text-black" />
           </div>
           <div>
-            <span className="text-lg sm:text-xl font-bold tracking-tight bg-gradient-to-r from-indigo-400 via-purple-300 to-pink-300 bg-clip-text text-transparent">
+            <span className="text-lg sm:text-xl font-bold tracking-tight bg-gradient-to-r from-white via-cyan-200 to-[#21A7FF] bg-clip-text text-transparent font-display">
               Apogee Assessment
             </span>
-            <span className="hidden sm:inline-block ml-2 text-xs px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 font-mono">
+            <motion.span
+              initial={{ opacity: 0, scale: 0.8 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ delay: 0.6 }}
+              className="hidden sm:inline-block ml-2.5 text-[11px] px-2.5 py-0.5 rounded-full bg-blue-500/15 text-[#5DE8FF] border border-cyan-400/30 font-mono tracking-wider"
+            >
               PROCTOR GUARD v3.4
-            </span>
+            </motion.span>
           </div>
         </div>
 
@@ -422,7 +535,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
             {isDark ? <Sun className="w-4 h-4 text-amber-300" /> : <Moon className="w-4 h-4 text-indigo-600" />}
           </button>
 
-          {/* Discreet Faculty Access Trigger (Accessible via secret URL or discrete lock key) */}
+          {/* Discreet Faculty Access Trigger */}
           <button
             onClick={onOpenAdminSecret}
             className="opacity-30 hover:opacity-100 transition-opacity p-2 text-xs flex items-center gap-1 rounded-lg border border-transparent hover:border-white/10"
@@ -431,45 +544,96 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
             <Lock className="w-3.5 h-3.5" />
           </button>
         </div>
-      </header>
+      </motion.header>
 
-      {/* Main Content Area */}
-      <main className="relative z-10 flex-1 flex items-center justify-center p-4 sm:p-6">
-        {/* VIEW 1: CANDIDATE REGISTRATION */}
+      {/* Main Content Area in 3D Perspective */}
+      <main className="relative z-10 flex-1 flex items-center justify-center p-4 sm:p-6 preserve-3d">
+        {/* VIEW 1: CANDIDATE REGISTRATION — 3D FLOATING PORTAL */}
         {examState === 'registration' && (
-          <div className="w-full max-w-xl mx-auto">
-            <div
-              className={`rounded-3xl p-6 sm:p-9 backdrop-blur-2xl border shadow-2xl transition-all ${
+          <div
+            onMouseMove={handleMouseMove}
+            onMouseLeave={handleMouseLeave}
+            className="w-full max-w-xl mx-auto perspective-1400"
+          >
+            <motion.div
+              initial={{
+                opacity: 0,
+                y: 60,
+                z: -150,
+                rotateX: 8,
+                scale: 0.92,
+              }}
+              animate={{
+                opacity: 1,
+                y: 0,
+                z: 0,
+                rotateX: mouseTilt.x,
+                rotateY: mouseTilt.y,
+                scale: 1,
+              }}
+              exit={{
+                opacity: 0,
+                z: -250,
+                scale: 0.85,
+                transition: { duration: 0.35, ease: 'easeInOut' },
+              }}
+              transition={{
+                duration: 0.9,
+                delay: 0.8,
+                ease: [0.16, 1, 0.3, 1],
+              }}
+              style={{ transformStyle: 'preserve-3d' }}
+              className={`rounded-3xl p-6 sm:p-9 glass-panel-elevated shadow-2xl transition-all relative overflow-hidden ${
                 isDark
-                  ? 'bg-[rgba(17,16,25,0.75)] border-white/10 shadow-black/60'
+                  ? 'border-[rgba(80,180,255,0.22)] shadow-[0_30px_100px_rgba(0,40,120,0.35)]'
                   : 'bg-white/95 border-slate-200 shadow-slate-200/80 text-slate-800'
               }`}
             >
+              {/* Subtle top edge glow */}
+              <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-[#5DE8FF] to-transparent opacity-60" />
+
               <div className="text-center mb-6">
-                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium mb-3 bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+                {/* 1.10s Stagger: Candidate Identification Badge */}
+                <motion.div
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 1.1 }}
+                  className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium mb-3 bg-blue-500/15 text-[#5DE8FF] border border-cyan-400/30"
+                >
                   <UserCheck className="w-3.5 h-3.5" />
-                  Candidate Identification
-                </div>
-                <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
+                  <span>Candidate Identification</span>
+                </motion.div>
+
+                {/* 1.25s Stagger: Lab & Examination Entry */}
+                <motion.h2
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 1.25 }}
+                  className="text-2xl font-bold font-display tracking-tight text-white mb-2"
+                >
                   Lab & Examination Entry
-                </h1>
-                <p className={`text-sm mt-1.5 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-                  Enter your official university credentials to register for this session.
+                </motion.h2>
+                <p className="text-xs text-slate-400">
+                  Authenticate your student profile and enter the secure assessment runtime.
                 </p>
               </div>
 
               {formError && (
-                <div className="mb-5 p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 text-sm flex items-center gap-2.5">
+                <div className="mb-5 p-3 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-300 text-xs flex items-center gap-2">
                   <AlertTriangle className="w-4 h-4 shrink-0" />
                   <span>{formError}</span>
                 </div>
               )}
 
               <form onSubmit={handleStartRegistration} className="space-y-4">
-                {/* Select Examination */}
-                <div>
+                {/* 1.40s Stagger: Exam Selector */}
+                <motion.div
+                  initial={{ opacity: 0, y: 12 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 1.4 }}
+                >
                   <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5 opacity-80">
-                    Active Assessment Session
+                    Select Scheduled Assessment
                   </label>
                   <select
                     value={selectedExamId}
@@ -477,15 +641,22 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                       setSelectedExamId(e.target.value);
                       handleCheckAttempt(formData.rollNumber, e.target.value);
                     }}
-                    className={`w-full px-4 py-2.5 rounded-xl text-sm border focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
+                    className={`w-full px-4 py-2.5 rounded-xl text-sm border focus:outline-none input-3d-field ${
                       isDark
                         ? 'bg-white/5 border-white/15 text-white'
                         : 'bg-slate-50 border-slate-300 text-slate-900'
                     }`}
                   >
-                    {exams.map((ex) => (
-                      <option key={ex.id} value={ex.id} className={isDark ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'}>
-                        [{ex.code}] {ex.title} ({ex.questions.length} MCQs, {ex.durationMinutes} mins)
+                    {exams.length === 0 && (
+                      <option value="">No Active Exams Available</option>
+                    )}
+                    {exams.map((exam) => (
+                      <option
+                        key={exam.id}
+                        value={exam.id}
+                        className={isDark ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'}
+                      >
+                        {exam.code}: {exam.title} ({exam.durationMinutes} mins)
                       </option>
                     ))}
                   </select>
@@ -497,13 +668,13 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                     return (
                       <div
                         className={`mt-2.5 p-3 rounded-xl border text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2 ${
-                          isDark ? 'bg-white/5 border-white/10' : 'bg-slate-100/80 border-slate-200'
+                          isDark ? 'bg-white/5 border-cyan-400/20' : 'bg-slate-100/80 border-slate-200'
                         }`}
                       >
                         <div className="flex items-center gap-2 flex-wrap">
-                          <span className="font-semibold">{currentEx.subject}</span>
+                          <span className="font-semibold text-white">{currentEx.subject}</span>
                           <span className="opacity-40">•</span>
-                          <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-bold text-[10px]">
+                          <span className="px-2 py-0.5 rounded-full bg-blue-500/20 text-[#5DE8FF] font-bold text-[10px]">
                             {currentEx.difficulty}
                           </span>
                           {currentEx.creationMethod === 'pdf_upload' || currentEx.pdfFilename ? (
@@ -517,158 +688,178 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                               <span>Faculty Custom Test</span>
                             </span>
                           ) : (
-                            <span className="px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 font-bold text-[10px] flex items-center gap-1">
+                            <span className="px-2 py-0.5 rounded-full bg-cyan-500/20 text-[#5DE8FF] font-bold text-[10px] flex items-center gap-1">
                               <Sparkles className="w-3 h-3" />
                               <span>AI Topic Test</span>
                             </span>
                           )}
                         </div>
 
-                        <div className="text-[11px] opacity-75 font-mono">
+                        <div className="text-[11px] opacity-75 font-mono text-cyan-300">
                           {currentEx.questions.length} Questions • {currentEx.durationMinutes} Mins • Max Marks: {currentEx.totalMarks || currentEx.questions.length}
                         </div>
                       </div>
                     );
                   })()}
-                </div>
+                </motion.div>
 
-                {/* Full Name */}
-                <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5 opacity-80">
-                    Full Legal Name
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="e.g. Aarav Sharma"
-                    value={formData.fullName}
-                    onChange={(e) => setFormData({ ...formData, fullName: e.target.value })}
-                    className={`w-full px-4 py-2.5 rounded-xl text-sm border focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
-                      isDark
-                        ? 'bg-white/5 border-white/15 text-white placeholder-white/30'
-                        : 'bg-slate-50 border-slate-300 text-slate-900 placeholder-slate-400'
-                    }`}
-                  />
-                </div>
-
-                {/* Roll Number & Email in 2 cols */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                {/* 1.55s Stagger: Candidate Fields */}
+                <motion.div
+                  initial={{ opacity: 0, y: 12 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 1.55 }}
+                  className="space-y-3.5"
+                >
+                  {/* Full Name */}
                   <div>
                     <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5 opacity-80">
-                      Roll Number (Unique ID)
+                      Full Name
                     </label>
                     <input
                       type="text"
                       required
-                      placeholder="e.g. 23KB1A3334"
-                      value={formData.rollNumber}
-                      onChange={(e) => {
-                        const val = e.target.value.toUpperCase();
-                        setFormData({ ...formData, rollNumber: val });
-                        handleCheckAttempt(val, selectedExamId);
-                      }}
-                      className={`w-full px-4 py-2.5 rounded-xl text-sm font-mono border focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
+                      placeholder="e.g. John Doe"
+                      value={formData.fullName}
+                      onChange={(e) => setFormData({ ...formData, fullName: e.target.value })}
+                      className={`w-full px-4 py-2.5 rounded-xl text-sm border focus:outline-none input-3d-field ${
                         isDark
                           ? 'bg-white/5 border-white/15 text-white placeholder-white/30'
                           : 'bg-slate-50 border-slate-300 text-slate-900 placeholder-slate-400'
                       }`}
                     />
                   </div>
-                  <div>
-                    <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5 opacity-80">
-                      Institutional Email
-                    </label>
-                    <input
-                      type="email"
-                      required
-                      placeholder="e.g. student@nbkrist.org"
-                      value={formData.email}
-                      onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                      className={`w-full px-4 py-2.5 rounded-xl text-sm border focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
-                        isDark
-                          ? 'bg-white/5 border-white/15 text-white placeholder-white/30'
-                          : 'bg-slate-50 border-slate-300 text-slate-900 placeholder-slate-400'
-                      }`}
-                    />
-                  </div>
-                </div>
 
-                {/* Branch, Section, Year in 3 cols */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <div>
-                    <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5 opacity-80">
-                      Branch
-                    </label>
-                    <select
-                      value={formData.branch}
-                      onChange={(e) => setFormData({ ...formData, branch: e.target.value })}
-                      className={`w-full px-3 py-2 rounded-xl text-xs sm:text-sm border focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
-                        isDark ? 'bg-white/5 border-white/15 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'
-                      }`}
-                    >
-                      <option className={isDark ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'} value="Computer Science & Engineering">CSE</option>
-                      <option className={isDark ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'} value="Artificial Intelligence & ML">AIML</option>
-                      <option className={isDark ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'} value="Electronics & Comm. Eng">ECE</option>
-                      <option className={isDark ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'} value="Information Technology">IT</option>
-                      <option className={isDark ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'} value="Mechanical Engineering">MECH</option>
-                    </select>
-                  </div>
+                  {/* Roll Number & Institutional Email in 2 cols */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5 opacity-80">
+                        Roll Number
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="e.g. 23KB1A3334"
+                        value={formData.rollNumber}
+                        onChange={(e) => {
+                          const val = e.target.value.toUpperCase();
+                          setFormData({ ...formData, rollNumber: val });
+                          handleCheckAttempt(val, selectedExamId);
+                        }}
+                        className={`w-full px-4 py-2.5 rounded-xl text-sm border focus:outline-none font-mono uppercase input-3d-field ${
+                          isDark
+                            ? 'bg-white/5 border-white/15 text-white placeholder-white/30'
+                            : 'bg-slate-50 border-slate-300 text-slate-900 placeholder-slate-400'
+                        }`}
+                      />
+                    </div>
 
-                  <div>
-                    <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5 opacity-80">
-                      Section
-                    </label>
-                    <select
-                      value={formData.section}
-                      onChange={(e) => setFormData({ ...formData, section: e.target.value })}
-                      className={`w-full px-3 py-2 rounded-xl text-xs sm:text-sm border focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
-                        isDark ? 'bg-white/5 border-white/15 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'
-                      }`}
-                    >
-                      <option className={isDark ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'} value="Section A">Section A</option>
-                      <option className={isDark ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'} value="Section B">Section B</option>
-                      <option className={isDark ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'} value="Section C">Section C</option>
-                    </select>
+                    <div>
+                      <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5 opacity-80">
+                        Institutional Email
+                      </label>
+                      <input
+                        type="email"
+                        required
+                        placeholder="e.g. 23kb1a3334@nbkrist.org"
+                        value={formData.email}
+                        onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                        className={`w-full px-4 py-2.5 rounded-xl text-sm border focus:outline-none input-3d-field ${
+                          isDark
+                            ? 'bg-white/5 border-white/15 text-white placeholder-white/30'
+                            : 'bg-slate-50 border-slate-300 text-slate-900 placeholder-slate-400'
+                        }`}
+                      />
+                    </div>
                   </div>
 
-                  <div>
-                    <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5 opacity-80">
-                      Year
-                    </label>
-                    <select
-                      value={formData.year}
-                      onChange={(e) => setFormData({ ...formData, year: e.target.value })}
-                      className={`w-full px-3 py-2 rounded-xl text-xs sm:text-sm border focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
-                        isDark ? 'bg-white/5 border-white/15 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'
-                      }`}
-                    >
-                      <option className={isDark ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'} value="1st Year">1st Year</option>
-                      <option className={isDark ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'} value="2nd Year">2nd Year</option>
-                      <option className={isDark ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'} value="3rd Year">3rd Year</option>
-                      <option className={isDark ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'} value="4th Year">4th Year</option>
-                    </select>
-                  </div>
-                </div>
+                  {/* Branch, Section, Year in 3 cols */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5 opacity-80">
+                        Branch
+                      </label>
+                      <select
+                        value={formData.branch}
+                        onChange={(e) => setFormData({ ...formData, branch: e.target.value })}
+                        className={`w-full px-3 py-2 rounded-xl text-xs sm:text-sm border focus:outline-none input-3d-field ${
+                          isDark ? 'bg-white/5 border-white/15 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'
+                        }`}
+                      >
+                        <option className={isDark ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'} value="Computer Science & Engineering">CSE</option>
+                        <option className={isDark ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'} value="Artificial Intelligence & ML">AIML</option>
+                        <option className={isDark ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'} value="Electronics & Comm. Eng">ECE</option>
+                        <option className={isDark ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'} value="Information Technology">IT</option>
+                        <option className={isDark ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'} value="Mechanical Engineering">MECH</option>
+                      </select>
+                    </div>
 
-                <button
-                  type="submit"
-                  className="w-full mt-4 py-3.5 px-6 rounded-2xl bg-gradient-to-r from-indigo-500 via-purple-600 to-pink-500 text-white font-semibold text-sm shadow-lg shadow-indigo-500/30 hover:opacity-95 transition-all flex items-center justify-center gap-2 cursor-pointer"
+                    <div>
+                      <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5 opacity-80">
+                        Section
+                      </label>
+                      <select
+                        value={formData.section}
+                        onChange={(e) => setFormData({ ...formData, section: e.target.value })}
+                        className={`w-full px-3 py-2 rounded-xl text-xs sm:text-sm border focus:outline-none input-3d-field ${
+                          isDark ? 'bg-white/5 border-white/15 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'
+                        }`}
+                      >
+                        <option className={isDark ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'} value="Section A">Section A</option>
+                        <option className={isDark ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'} value="Section B">Section B</option>
+                        <option className={isDark ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'} value="Section C">Section C</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5 opacity-80">
+                        Year
+                      </label>
+                      <select
+                        value={formData.year}
+                        onChange={(e) => setFormData({ ...formData, year: e.target.value })}
+                        className={`w-full px-3 py-2 rounded-xl text-xs sm:text-sm border focus:outline-none input-3d-field ${
+                          isDark ? 'bg-white/5 border-white/15 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'
+                        }`}
+                      >
+                        <option className={isDark ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'} value="1st Year">1st Year</option>
+                        <option className={isDark ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'} value="2nd Year">2nd Year</option>
+                        <option className={isDark ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'} value="3rd Year">3rd Year</option>
+                        <option className={isDark ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'} value="4th Year">4th Year</option>
+                      </select>
+                    </div>
+                  </div>
+                </motion.div>
+
+                {/* 1.75s Stagger: Proceed Button with 3D Depth Interaction */}
+                <motion.div
+                  initial={{ opacity: 0, y: 12 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 1.75 }}
                 >
-                  <span>Proceed to Proctoring Instructions</span>
-                  <ChevronRight className="w-4 h-4" />
-                </button>
+                  <motion.button
+                    type="submit"
+                    whileHover={{ translateY: -2, z: 8, boxShadow: '0 12px 30px rgba(8,126,255,0.4)' }}
+                    whileTap={{ scale: 0.97 }}
+                    className="w-full mt-4 py-3.5 px-6 rounded-2xl bg-gradient-to-r from-[#087EFF] via-[#21A7FF] to-[#5DE8FF] text-black font-extrabold text-sm shadow-lg shadow-blue-500/30 flex items-center justify-center gap-2 cursor-pointer transition-all tracking-wide"
+                  >
+                    <span>Proceed to Proctoring Instructions</span>
+                    <ChevronRight className="w-4 h-4 text-black stroke-[3]" />
+                  </motion.button>
+                </motion.div>
               </form>
-            </div>
+            </motion.div>
           </div>
         )}
 
         {/* VIEW 2: ALREADY TAKEN EXAM NOTICE (Single Attempt Rule Enforcement) */}
         {examState === 'already_taken' && previousSubmissionData && (
-          <div className="w-full max-w-lg mx-auto">
-            <div
-              className={`rounded-3xl p-6 sm:p-9 backdrop-blur-2xl border shadow-2xl text-center ${
+          <div className="w-full max-w-lg mx-auto perspective-1400">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.92, z: -100 }}
+              animate={{ opacity: 1, scale: 1, z: 0 }}
+              className={`rounded-3xl p-6 sm:p-9 glass-panel-elevated text-center ${
                 isDark
-                  ? 'bg-rose-950/40 border-rose-500/30 text-white'
+                  ? 'border-rose-500/30 text-white'
                   : 'bg-white border-rose-200 text-slate-800'
               }`}
             >
@@ -676,12 +867,12 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                 <ShieldAlert className="w-8 h-8" />
               </div>
 
-              <h2 className="text-2xl font-bold tracking-tight text-rose-400 mb-2">
+              <h2 className="text-2xl font-bold font-display tracking-tight text-rose-400 mb-2">
                 Assessment Already Completed
               </h2>
               <p className={`text-sm mb-6 ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>
                 Candidate with Roll Number{' '}
-                <strong className="font-mono text-indigo-400">
+                <strong className="font-mono text-[#5DE8FF]">
                   {previousSubmissionData.student.rollNumber}
                 </strong>{' '}
                 has already submitted this examination. Each student is strictly permitted to attempt the test once.
@@ -689,7 +880,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
 
               <div
                 className={`text-left rounded-2xl p-4 mb-6 border text-xs sm:text-sm space-y-2 ${
-                  isDark ? 'bg-black/40 border-white/10' : 'bg-slate-50 border-slate-200'
+                  isDark ? 'bg-black/50 border-white/10' : 'bg-slate-50 border-slate-200'
                 }`}
               >
                 <div className="flex justify-between">
@@ -723,22 +914,45 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
               >
                 Return to Candidate Login
               </button>
-            </div>
+            </motion.div>
           </div>
         )}
 
-        {/* VIEW 3: PROCTORING & EXAM RULES */}
+        {/* VIEW 3: PROCTORING & EXAM RULES (Emerging from Depth) */}
         {examState === 'rules' && activeExam && (
-          <div className="w-full max-w-2xl mx-auto">
-            <div
-              className={`rounded-3xl p-6 sm:p-9 backdrop-blur-2xl border shadow-2xl ${
-                isDark ? 'bg-[rgba(17,16,25,0.85)] border-white/10' : 'bg-white border-slate-200 text-slate-800'
+          <div className="w-full max-w-2xl mx-auto perspective-1400">
+            <motion.div
+              initial={{
+                opacity: 0,
+                z: 250,
+                scale: 0.85,
+              }}
+              animate={{
+                opacity: 1,
+                z: 0,
+                scale: 1,
+              }}
+              exit={{
+                opacity: 0,
+                z: -300,
+                scale: 0.8,
+                transition: { duration: 0.35 },
+              }}
+              transition={{
+                duration: 0.6,
+                ease: [0.16, 1, 0.3, 1],
+              }}
+              style={{ transformStyle: 'preserve-3d' }}
+              className={`rounded-3xl p-6 sm:p-9 glass-panel-3d ${
+                isDark ? 'border-[rgba(80,180,255,0.22)]' : 'bg-white border-slate-200 text-slate-800'
               }`}
             >
               <div className="flex items-center justify-between border-b pb-4 mb-5 border-white/10">
                 <div>
-                  <h2 className="text-xl sm:text-2xl font-bold">{activeExam.title}</h2>
-                  <p className="text-xs font-mono opacity-70 mt-1">
+                  <h2 className="text-xl sm:text-2xl font-bold font-display tracking-wide text-white">
+                    {activeExam.title}
+                  </h2>
+                  <p className="text-xs font-mono opacity-70 mt-1 text-[#5DE8FF]">
                     Code: {activeExam.code} • Duration: {activeExam.durationMinutes} Minutes • Questions: {activeExam.questions.length} MCQs
                   </p>
                 </div>
@@ -748,11 +962,11 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
               </div>
 
               <div className="space-y-4 mb-7 text-xs sm:text-sm">
-                <div className="flex items-start gap-3 p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-300">
-                  <Maximize2 className="w-5 h-5 shrink-0 mt-0.5" />
+                <div className="flex items-start gap-3 p-3.5 rounded-xl bg-blue-500/10 border border-cyan-400/20 text-cyan-300">
+                  <Maximize2 className="w-5 h-5 shrink-0 mt-0.5 text-[#5DE8FF]" />
                   <div>
-                    <h4 className="font-bold">Mandatory Fullscreen Mode</h4>
-                    <p className="opacity-80 mt-0.5">
+                    <h4 className="font-bold text-white">Mandatory Fullscreen Mode</h4>
+                    <p className="opacity-80 mt-0.5 text-slate-300">
                       Starting this test locks your browser in Fullscreen mode. Exiting fullscreen or pressing Esc is tracked as an infraction.
                     </p>
                   </div>
@@ -761,19 +975,19 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                 <div className="flex items-start gap-3 p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300">
                   <ShieldAlert className="w-5 h-5 shrink-0 mt-0.5" />
                   <div>
-                    <h4 className="font-bold">AI Tools & Tab Switching Detection</h4>
-                    <p className="opacity-80 mt-0.5">
-                      Switching browser tabs, opening ChatGPT/Claude/Gemini, copy-pasting, right-clicking, or accessing secondary windows will immediately log a proctoring violation.
+                    <h4 className="font-bold text-white">AI Tools & Tab Switching Detection</h4>
+                    <p className="opacity-80 mt-0.5 text-slate-300">
+                      Switching browser tabs, opening external AI tools, copy-pasting, right-clicking, or accessing secondary windows will immediately flag an infraction.
                     </p>
                   </div>
                 </div>
 
-                <div className="flex items-start gap-3 p-3.5 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-300">
-                  <Clock className="w-5 h-5 shrink-0 mt-0.5" />
+                <div className="flex items-start gap-3 p-3.5 rounded-xl bg-cyan-500/10 border border-cyan-400/20 text-cyan-300">
+                  <Clock className="w-5 h-5 shrink-0 mt-0.5 text-[#5DE8FF]" />
                   <div>
-                    <h4 className="font-bold">Single Attempt & Automatic Submission</h4>
-                    <p className="opacity-80 mt-0.5">
-                      Reaching <strong>{activeExam.maxViolations || 3} violations</strong> or letting the countdown reach 00:00 will terminate and submit your assessment automatically.
+                    <h4 className="font-bold text-white">Single Attempt & Automatic Submission</h4>
+                    <p className="opacity-80 mt-0.5 text-slate-300">
+                      Reaching <strong>{activeExam.maxViolations || 3} infractions</strong> or letting the countdown reach 00:00 will terminate and submit your assessment automatically.
                     </p>
                   </div>
                 </div>
@@ -786,19 +1000,21 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                 >
                   Back
                 </button>
-                <button
+                <motion.button
+                  whileHover={{ scale: 1.02, boxShadow: '0 0 25px rgba(33,167,255,0.5)' }}
+                  whileTap={{ scale: 0.97 }}
                   onClick={handleStartExam}
-                  className="flex-1 py-3 px-6 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white font-bold text-sm shadow-lg shadow-emerald-500/25 flex items-center justify-center gap-2 cursor-pointer transition-all"
+                  className="flex-1 py-3 px-6 rounded-xl bg-gradient-to-r from-[#087EFF] via-[#21A7FF] to-[#5DE8FF] text-black font-extrabold text-sm shadow-lg shadow-blue-500/30 flex items-center justify-center gap-2 cursor-pointer transition-all tracking-wide"
                 >
-                  <Maximize2 className="w-4 h-4" />
+                  <Maximize2 className="w-4 h-4 stroke-[2.5]" />
                   <span>Enter Fullscreen & Begin Assessment</span>
-                </button>
+                </motion.button>
               </div>
-            </div>
+            </motion.div>
           </div>
         )}
 
-        {/* VIEW: INITIALIZING CINEMATIC HUD SEQUENCE (Master Prompt) */}
+        {/* VIEW: INITIALIZING CINEMATIC HUD SEQUENCE */}
         {examState === 'initializing' && activeExam && (
           <ExamInitialization
             examTitle={activeExam.title}
@@ -809,26 +1025,30 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
           />
         )}
 
-        {/* VIEW 4: ACTIVE EXAM IN PROGRESS (FUTURISTIC LABORA AI HUD & FLOATING GLASS SURFACE) */}
+        {/* VIEW 4: ACTIVE EXAM IN PROGRESS — 3D FLOATING MCQ EXAMINATION EXPERIENCE */}
         {examState === 'active' && activeExam && shuffledQuestions.length > 0 && (
-          <div className="w-full max-w-4xl mx-auto flex flex-col gap-5">
+          <div className="w-full max-w-4xl mx-auto flex flex-col gap-5 perspective-1400">
             {/* Top Exam HUD: Timer, Progress Bar, Violations */}
-            <div className="glass-panel rounded-3xl p-4 sm:p-5 flex flex-wrap items-center justify-between gap-4 shadow-xl border border-white/10 relative overflow-hidden">
+            <motion.div
+              initial={{ opacity: 0, y: -20, z: -50 }}
+              animate={{ opacity: 1, y: 0, z: 0 }}
+              className="glass-panel-3d p-4 sm:p-5 flex flex-wrap items-center justify-between gap-4 shadow-xl relative overflow-hidden"
+            >
               <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-xl bg-blue-500/20 text-cyan-300 border border-cyan-400/30 flex items-center justify-center font-display font-bold text-sm shrink-0">
-                  <Cpu className="w-5 h-5 text-cyan-400" />
+                <div className="w-9 h-9 rounded-xl bg-blue-500/20 text-[#5DE8FF] border border-cyan-400/30 flex items-center justify-center font-display font-bold text-sm shrink-0">
+                  <Cpu className="w-5 h-5 text-[#5DE8FF]" />
                 </div>
                 <div>
                   <div className="flex items-center gap-2">
                     <span className="font-display font-bold text-sm tracking-wide text-white">
-                      LABORA AI
+                      APOGEE HUD
                     </span>
-                    <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-cyan-500/15 text-cyan-300 border border-cyan-400/30">
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-cyan-500/15 text-[#5DE8FF] border border-cyan-400/30">
                       {activeExam.code}
                     </span>
                   </div>
                   <div className="text-xs text-slate-400 truncate max-w-[280px] sm:max-w-md">
-                    {activeExam.title} • <span className="font-mono text-cyan-400">{formData.rollNumber}</span>
+                    {activeExam.title} • <span className="font-mono text-[#5DE8FF]">{formData.rollNumber}</span>
                   </div>
                 </div>
               </div>
@@ -844,7 +1064,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                       ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
                       : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
                   }`}
-                  title="Fullscreen & tab switch violation monitor"
+                  title="Proctoring violation monitor"
                 >
                   <ShieldAlert className="w-4 h-4" />
                   <span>
@@ -859,26 +1079,28 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                       ? 'bg-rose-500/20 text-rose-300 border-rose-500/50 shadow-[0_0_15px_rgba(244,63,94,0.35)] animate-pulse'
                       : timeLeftSeconds < activeExam.durationMinutes * 60 * 0.2
                       ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-[0_0_15px_rgba(245,158,11,0.25)]'
-                      : 'bg-blue-600/20 text-cyan-300 border-cyan-400/40 shadow-[0_0_18px_rgba(91,231,255,0.2)]'
+                      : 'bg-blue-600/20 text-[#5DE8FF] border-cyan-400/40 shadow-[0_0_18px_rgba(93,232,255,0.2)]'
                   }`}
                 >
-                  <Clock className="w-4 h-4 text-cyan-400" />
+                  <Clock className="w-4 h-4 text-[#5DE8FF]" />
                   <span className="tracking-wider">{formatTime(timeLeftSeconds)}</span>
                 </div>
               </div>
-            </div>
+            </motion.div>
 
-            {/* Continuous Progress Bar Line */}
+            {/* Continuous Smooth Progress Bar Line */}
             <div className="w-full bg-white/10 h-1.5 rounded-full overflow-hidden p-0.5 border border-white/5">
               <motion.div
-                className="h-full bg-gradient-to-r from-blue-600 via-cyan-400 to-white rounded-full shadow-[0_0_10px_rgba(91,231,255,0.7)]"
-                animate={{ width: `${((currentQuestionIndex + 1) / shuffledQuestions.length) * 100}%` }}
-                transition={{ duration: 0.35, ease: 'easeOut' }}
+                className="h-full bg-gradient-to-r from-[#087EFF] via-[#21A7FF] to-[#5DE8FF] rounded-full shadow-[0_0_10px_rgba(93,232,255,0.7)]"
+                style={{
+                  width: `${((currentQuestionIndex + 1) / shuffledQuestions.length) * 100}%`,
+                  transition: 'width 500ms cubic-bezier(0.16, 1, 0.3, 1)',
+                }}
               />
             </div>
 
-            {/* Question Progress Navigation Bar */}
-            <div className="glass-panel rounded-2xl p-3 border border-white/10 flex items-center justify-between overflow-x-auto gap-2 text-xs">
+            {/* Spatial Question Navigator */}
+            <div className="glass-panel-3d rounded-2xl p-3 border border-white/10 flex items-center justify-between overflow-x-auto gap-2 text-xs">
               <div className="flex items-center gap-2">
                 <span className="uppercase font-mono text-[11px] opacity-60 tracking-wider">NAVIGATOR:</span>
                 <div className="flex items-center gap-1.5">
@@ -886,169 +1108,241 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                     const isAnswered = selectedAnswers[q.id] !== undefined;
                     const isCurrent = idx === currentQuestionIndex;
                     return (
-                      <button
+                      <motion.button
                         key={q.id}
-                        onClick={() => setCurrentQuestionIndex(idx)}
+                        whileHover={{ scale: 1.1, translateY: -1 }}
+                        whileTap={{ scale: 0.95 }}
+                        onClick={() => handleJumpToQuestion(idx)}
                         className={`w-7 h-7 rounded-lg text-xs font-mono font-bold transition-all flex items-center justify-center cursor-pointer ${
                           isCurrent
-                            ? 'ring-2 ring-cyan-400 bg-gradient-to-r from-blue-600 to-cyan-500 text-white shadow-md shadow-cyan-500/30'
+                            ? 'ring-2 ring-[#5DE8FF] bg-gradient-to-r from-[#087EFF] to-[#21A7FF] text-white shadow-lg shadow-cyan-500/40'
                             : isAnswered
-                            ? 'bg-blue-500/20 text-cyan-300 border border-cyan-400/30'
+                            ? 'bg-blue-500/20 text-[#5DE8FF] border border-cyan-400/40 shadow-[0_0_8px_rgba(93,232,255,0.2)]'
                             : 'bg-white/5 text-white/40 hover:bg-white/10 border border-white/5'
                         }`}
                       >
                         {idx + 1}
-                      </button>
+                      </motion.button>
                     );
                   })}
                 </div>
               </div>
 
-              <div className="font-mono text-[11px] text-cyan-300/80 shrink-0">
+              <div className="font-mono text-[11px] text-[#5DE8FF] shrink-0">
                 {Object.keys(selectedAnswers).length} / {shuffledQuestions.length} ANSWERED
               </div>
             </div>
 
-            {/* Main Floating Glass Examination Surface Card */}
+            {/* 3D FLOATING QUESTION PANEL (Master Prompt Specifications: Exit Phase -> Digital Space -> Enter Phase) */}
             {(() => {
               const q = shuffledQuestions[currentQuestionIndex];
               return (
-                <AnimatePresence mode="wait">
-                  <motion.div
-                    key={q.id}
-                    initial={{ opacity: 0, x: 26, filter: 'blur(6px)' }}
-                    animate={{ opacity: 1, x: 0, filter: 'blur(0px)' }}
-                    exit={{ opacity: 0, x: -26, filter: 'blur(6px)' }}
-                    transition={{ duration: 0.42, ease: [0.16, 1, 0.3, 1] }}
-                    className="glass-panel-elevated rounded-3xl p-6 sm:p-9 flex flex-col justify-between min-h-[440px] relative overflow-hidden"
-                  >
-                    <div>
-                      {/* Question Classification Header */}
-                      <div className="flex flex-wrap items-center justify-between gap-2 mb-4 pb-3 border-b border-white/10">
-                        <div className="flex items-center gap-2">
-                          <span className="font-display font-extrabold text-xs sm:text-sm tracking-widest text-cyan-300 px-3 py-1 rounded-full bg-cyan-500/15 border border-cyan-400/30">
-                            QUESTION {(currentQuestionIndex + 1).toString().padStart(2, '0')}
-                          </span>
-                          {q.questionType && (
-                            <span className="text-[10px] font-mono px-2.5 py-1 rounded-full bg-purple-500/20 text-purple-300 border border-purple-400/30 uppercase tracking-wider">
-                              {q.questionType.replace('_', ' ')}
+                <div className="relative w-full min-h-[460px] preserve-3d">
+                  <AnimatePresence mode="wait" custom={navDirection}>
+                    <motion.div
+                      key={q.id}
+                      custom={navDirection}
+                      variants={{
+                        // Phase 3: New Question Enters from Depth
+                        initial: (direction: number) => ({
+                          opacity: 0,
+                          z: 160,
+                          x: direction * 40,
+                          scale: 0.88,
+                          rotateY: direction * -4,
+                          filter: 'blur(4px)',
+                        }),
+                        animate: {
+                          opacity: 1,
+                          z: 0,
+                          x: 0,
+                          scale: 1,
+                          rotateY: 0,
+                          filter: 'blur(0px)',
+                          transition: {
+                            duration: 0.46,
+                            ease: [0.16, 1, 0.3, 1],
+                          },
+                        },
+                        // Phase 1: Exit into Depth
+                        exit: (direction: number) => ({
+                          opacity: 0.5,
+                          z: -120,
+                          x: direction * -30,
+                          scale: 0.94,
+                          filter: 'blur(3px)',
+                          transition: {
+                            duration: 0.18,
+                            ease: 'easeIn',
+                          },
+                        }),
+                      }}
+                      initial="initial"
+                      animate="animate"
+                      exit="exit"
+                      style={{ transformStyle: 'preserve-3d' }}
+                      className="glass-panel-3d rounded-3xl p-6 sm:p-9 flex flex-col justify-between min-h-[460px] relative overflow-hidden"
+                    >
+                      {/* Back Layer Blue Ambient Glow */}
+                      <div className="absolute -top-24 -right-24 w-72 h-72 rounded-full bg-blue-600/20 blur-[90px] pointer-events-none" />
+                      <div className="absolute -bottom-24 -left-24 w-72 h-72 rounded-full bg-cyan-500/15 blur-[90px] pointer-events-none" />
+
+                      <div className="relative z-10">
+                        {/* Question Classification Header */}
+                        <div className="flex flex-wrap items-center justify-between gap-2 mb-4 pb-3 border-b border-white/10">
+                          <div className="flex items-center gap-2">
+                            {/* Question Number 3D Transition */}
+                            <motion.span
+                              key={`num_${currentQuestionIndex}`}
+                              initial={{ opacity: 0, rotateX: 12, z: -20 }}
+                              animate={{ opacity: 1, rotateX: 0, z: 0 }}
+                              transition={{ duration: 0.35, ease: 'easeOut' }}
+                              className="font-display font-extrabold text-xs sm:text-sm tracking-widest text-cyan-300 px-3 py-1 rounded-full bg-cyan-500/15 border border-cyan-400/30 shadow-[0_0_12px_rgba(93,232,255,0.2)]"
+                            >
+                              QUESTION {(currentQuestionIndex + 1).toString().padStart(2, '0')}
+                            </motion.span>
+                            {q.questionType && (
+                              <span className="text-[10px] font-mono px-2.5 py-1 rounded-full bg-blue-500/20 text-cyan-200 border border-blue-400/30 uppercase tracking-wider">
+                                {q.questionType.replace('_', ' ')}
+                              </span>
+                            )}
+                          </div>
+
+                          {q.subtopic && (
+                            <span className="text-xs font-mono text-slate-400 truncate max-w-[200px]">
+                              {q.subtopic}
                             </span>
                           )}
                         </div>
 
-                        {q.subtopic && (
-                          <span className="text-xs font-mono text-slate-400 truncate max-w-[200px]">
-                            {q.subtopic}
-                          </span>
+                        {/* Question Text */}
+                        <motion.h3
+                          initial={{ opacity: 0, y: 8 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ delay: 0.08, duration: 0.35 }}
+                          className="text-base sm:text-lg font-medium leading-relaxed text-white mb-5 font-tech"
+                        >
+                          {q.text}
+                        </motion.h3>
+
+                        {/* Code Snippet if applicable */}
+                        {q.codeSnippet && (
+                          <motion.div
+                            initial={{ opacity: 0, y: 8 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ delay: 0.12 }}
+                            className="mb-5 rounded-2xl bg-[#01030a] border border-cyan-500/25 p-4 font-mono text-xs text-emerald-400 overflow-x-auto whitespace-pre shadow-inner"
+                          >
+                            {q.codeSnippet}
+                          </motion.div>
                         )}
-                      </div>
 
-                      {/* Question Text */}
-                      <h3 className="text-base sm:text-lg font-medium leading-relaxed text-white mb-5 font-tech">
-                        {q.text}
-                      </h3>
-
-                      {/* Code Snippet if applicable */}
-                      {q.codeSnippet && (
-                        <div className="mb-5 rounded-2xl bg-[#010207] border border-cyan-500/20 p-4 font-mono text-xs text-emerald-400 overflow-x-auto whitespace-pre shadow-inner">
-                          {q.codeSnippet}
-                        </div>
-                      )}
-
-                      {/* 4 Interactive MCQ Options */}
-                      <div className="space-y-3 mt-4">
-                        {q.options.map((opt, optIdx) => {
-                          const isSelected = tempSelection === optIdx;
-                          const optionLetters = ['A', 'B', 'C', 'D'];
-                          return (
-                            <button
-                              key={optIdx}
-                              onClick={() => setTempSelection(optIdx)}
-                              className={`w-full text-left p-4 sm:p-4.5 rounded-2xl border transition-all flex items-center gap-3.5 cursor-pointer ${
-                                isSelected
-                                  ? 'bg-blue-600/25 border-cyan-400 text-white shadow-lg shadow-cyan-500/20 ring-1 ring-cyan-400'
-                                  : 'bg-white/5 border-white/10 hover:border-cyan-400/40 hover:translate-x-1.5 text-white/90'
-                              }`}
-                            >
-                              <span
-                                className={`w-8 h-8 rounded-xl flex items-center justify-center text-xs font-mono font-bold shrink-0 transition-colors ${
+                        {/* 4 Interactive MCQ Options with Sequential Stagger */}
+                        <div className="space-y-3 mt-4">
+                          {q.options.map((opt, optIdx) => {
+                            const isSelected = tempSelection === optIdx;
+                            const optionLetters = ['A', 'B', 'C', 'D'];
+                            return (
+                              <motion.button
+                                key={optIdx}
+                                initial={{ opacity: 0, y: 12, z: -10, scale: 0.98 }}
+                                animate={{ opacity: 1, y: 0, z: 0, scale: 1 }}
+                                transition={{
+                                  delay: 0.15 + optIdx * 0.06, // 60ms stagger per option (Master Prompt)
+                                  duration: 0.35,
+                                  ease: [0.16, 1, 0.3, 1],
+                                }}
+                                whileHover={{ x: 4, z: 8 }}
+                                whileTap={{ scale: 0.98 }}
+                                onClick={() => setTempSelection(optIdx)}
+                                className={`w-full text-left p-4 sm:p-4.5 rounded-2xl border transition-all flex items-center gap-3.5 cursor-pointer option-3d-card ${
                                   isSelected
-                                    ? 'bg-gradient-to-tr from-cyan-400 to-blue-500 text-black font-extrabold shadow-md shadow-cyan-400/40'
-                                    : 'bg-white/10 text-white/80 border border-white/10'
+                                    ? 'bg-blue-600/30 border-[#5DE8FF] text-white shadow-[0_0_25px_rgba(8,126,255,0.35)] ring-1 ring-[#5DE8FF]'
+                                    : 'bg-white/5 border-white/10 hover:border-cyan-400/40 text-white/90'
                                 }`}
                               >
-                                {optionLetters[optIdx]}
-                              </span>
-                              <span className="text-sm font-tech leading-snug flex-1">{opt}</span>
+                                <span
+                                  className={`w-8 h-8 rounded-xl flex items-center justify-center text-xs font-mono font-bold shrink-0 transition-all ${
+                                    isSelected
+                                      ? 'bg-gradient-to-tr from-[#5DE8FF] to-[#087EFF] text-black font-extrabold shadow-md shadow-cyan-400/50 scale-105'
+                                      : 'bg-white/10 text-white/80 border border-white/10'
+                                  }`}
+                                >
+                                  {optionLetters[optIdx]}
+                                </span>
+                                <span className="text-sm font-tech leading-snug flex-1">{opt}</span>
 
-                              {isSelected && (
-                                <motion.div
-                                  initial={{ scale: 0 }}
-                                  animate={{ scale: 1 }}
-                                  className="w-2.5 h-2.5 rounded-full bg-cyan-400 shadow-[0_0_8px_#5BE7FF] shrink-0"
-                                />
-                              )}
-                            </button>
-                          );
-                        })}
+                                {isSelected && (
+                                  <motion.div
+                                    initial={{ scale: 0 }}
+                                    animate={{ scale: [0, 1.3, 1] }}
+                                    transition={{ duration: 0.3 }}
+                                    className="w-3 h-3 rounded-full bg-[#5DE8FF] shadow-[0_0_12px_#5DE8FF] shrink-0"
+                                  />
+                                )}
+                              </motion.button>
+                            );
+                          })}
+                        </div>
                       </div>
-                    </div>
 
-                    {/* Question Bottom Action Bar: Previous, Save & Next, Finish */}
-                    <div className="flex items-center justify-between pt-6 mt-6 border-t border-white/10">
-                      <button
-                        onClick={() => setCurrentQuestionIndex((prev) => Math.max(prev - 1, 0))}
-                        disabled={currentQuestionIndex === 0}
-                        className="px-4 py-2.5 rounded-xl border border-white/15 text-xs sm:text-sm font-medium flex items-center gap-1.5 disabled:opacity-30 disabled:cursor-not-allowed hover:bg-white/5 transition-all text-slate-300"
-                      >
-                        <ChevronLeft className="w-4 h-4" />
-                        <span>Previous</span>
-                      </button>
-
-                      <div className="flex items-center gap-3">
-                        {/* Save & Next Button */}
+                      {/* Question Bottom Action Bar: Previous, Save & Next, Finish */}
+                      <div className="relative z-10 flex items-center justify-between pt-6 mt-6 border-t border-white/10">
                         <button
-                          onClick={handleSaveAndNext}
-                          disabled={tempSelection === null}
-                          className={`px-5 py-2.5 rounded-xl font-bold text-xs sm:text-sm flex items-center gap-2 transition-all cursor-pointer ${
-                            tempSelection !== null
-                              ? 'bg-gradient-to-r from-blue-600 via-cyan-500 to-blue-500 text-black font-bold shadow-lg shadow-cyan-500/30 hover:opacity-95'
-                              : 'bg-white/10 text-white/40 cursor-not-allowed border border-white/10'
-                          }`}
+                          onClick={handlePreviousQuestion}
+                          disabled={currentQuestionIndex === 0 || isNavigating}
+                          className="px-4 py-2.5 rounded-xl border border-white/15 text-xs sm:text-sm font-medium flex items-center gap-1.5 disabled:opacity-30 disabled:cursor-not-allowed hover:bg-white/5 transition-all text-slate-300 cursor-pointer"
                         >
-                          <Save className="w-4 h-4" />
-                          <span>SAVE & NEXT</span>
-                          <ChevronRight className="w-4 h-4" />
+                          <ChevronLeft className="w-4 h-4" />
+                          <span>Previous</span>
                         </button>
 
-                        {/* Final Submit Exam Button */}
-                        <button
-                          onClick={() => {
-                            if (tempSelection !== null) {
-                              const currentQ = shuffledQuestions[currentQuestionIndex];
-                              setSelectedAnswers((prev) => ({
-                                ...prev,
-                                [currentQ.id]: tempSelection,
-                              }));
-                            }
-                            setShowFinishConfirmModal(true);
-                          }}
-                          className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs sm:text-sm flex items-center gap-1.5 shadow-md shadow-emerald-600/30 transition-all cursor-pointer"
-                          title="Finish exam and calculate score"
-                        >
-                          <Send className="w-3.5 h-3.5" />
-                          <span>FINISH EXAM</span>
-                        </button>
+                        <div className="flex items-center gap-3">
+                          {/* Save & Next Button with Connected Energy Pulse */}
+                          <motion.button
+                            whileTap={{ scale: 0.96 }}
+                            onClick={handleSaveAndNext}
+                            disabled={tempSelection === null || isNavigating}
+                            className={`px-5 py-2.5 rounded-xl font-bold text-xs sm:text-sm flex items-center gap-2 transition-all cursor-pointer ${
+                              tempSelection !== null && !isNavigating
+                                ? 'bg-gradient-to-r from-[#087EFF] via-[#21A7FF] to-[#5DE8FF] text-black font-bold shadow-lg shadow-blue-500/35 hover:shadow-cyan-400/50'
+                                : 'bg-white/10 text-white/40 cursor-not-allowed border border-white/10'
+                            }`}
+                          >
+                            <Save className="w-4 h-4 stroke-[2.5]" />
+                            <span>SAVE & NEXT</span>
+                            <ChevronRight className="w-4 h-4 stroke-[2.5]" />
+                          </motion.button>
+
+                          {/* Final Submit Exam Button */}
+                          <button
+                            onClick={() => {
+                              if (tempSelection !== null) {
+                                const currentQ = shuffledQuestions[currentQuestionIndex];
+                                setSelectedAnswers((prev) => ({
+                                  ...prev,
+                                  [currentQ.id]: tempSelection,
+                                }));
+                              }
+                              setShowFinishConfirmModal(true);
+                            }}
+                            className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs sm:text-sm flex items-center gap-1.5 shadow-md shadow-emerald-600/30 transition-all cursor-pointer"
+                            title="Finish exam and calculate score"
+                          >
+                            <Send className="w-3.5 h-3.5" />
+                            <span>FINISH EXAM</span>
+                          </button>
+                        </div>
                       </div>
-                    </div>
-                  </motion.div>
-                </AnimatePresence>
+                    </motion.div>
+                  </AnimatePresence>
+                </div>
               );
             })()}
           </div>
         )}
 
-        {/* VIEW 5: CINEMATIC ACHIEVEMENT & PERFORMANCE INTELLIGENCE (Master Prompt Result Experience) */}
+        {/* VIEW 5: CINEMATIC ACHIEVEMENT & 3D PERFORMANCE INTELLIGENCE REVEAL */}
         {examState === 'completed' && finalSubmission && (
           <ResultCelebration
             submission={finalSubmission}
@@ -1069,90 +1363,66 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
         )}
       </main>
 
-      {/* Violation Alert Modal (Urgent Pop-up if user switches tabs or exits fullscreen) */}
+      {/* Violation Alert Modal (Infraction Warning Pop-up) */}
       {showViolationModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-fade-up">
-          <div className="max-w-md w-full rounded-3xl bg-rose-950/90 border border-rose-500/50 p-6 text-center text-white shadow-2xl">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md">
+          <motion.div
+            initial={{ scale: 0.9, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="max-w-md w-full rounded-3xl bg-rose-950/90 border border-rose-500/50 p-6 text-center text-white shadow-2xl"
+          >
             <div className="w-14 h-14 rounded-2xl bg-rose-500/20 text-rose-400 mx-auto flex items-center justify-center mb-4 border border-rose-500/40">
               <ShieldAlert className="w-8 h-8 animate-bounce" />
             </div>
-            <h3 className="text-xl font-bold text-rose-400 mb-2">Proctoring Violation Flagged!</h3>
+            <h3 className="text-xl font-bold text-rose-400 mb-2">Proctoring Infraction Flagged!</h3>
             <p className="text-sm text-slate-200 mb-6">{violationModalMessage}</p>
             <button
-              onClick={() => {
-                setShowViolationModal(false);
-                if (document.documentElement.requestFullscreen) {
-                  document.documentElement.requestFullscreen().catch(() => {});
-                }
-              }}
-              className="w-full py-3 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-sm transition-colors cursor-pointer"
+              onClick={() => setShowViolationModal(false)}
+              className="w-full py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs shadow-lg uppercase tracking-wider"
             >
-              I Understand — Resume Assessment Fullscreen
+              Acknowledge & Return to Exam
             </button>
-          </div>
+          </motion.div>
         </div>
       )}
 
-      {/* Examination Finish Confirmation Modal */}
-      {showFinishConfirmModal && activeExam && (() => {
-        const currentAnswered = Object.keys(selectedAnswers).length + (tempSelection !== null && selectedAnswers[shuffledQuestions[currentQuestionIndex]?.id] === undefined ? 1 : 0);
-        const unanswered = Math.max(0, shuffledQuestions.length - currentAnswered);
-
-        return (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-up">
-            <div
-              className={`max-w-md w-full rounded-3xl p-6 sm:p-7 border shadow-2xl ${
-                isDark ? 'bg-[#0f1123] border-white/20 text-white' : 'bg-white border-slate-300 text-slate-900'
-              }`}
-            >
-              <div className="w-12 h-12 rounded-2xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center mb-4 border border-emerald-500/30">
-                <Send className="w-6 h-6" />
-              </div>
-              <h3 className="text-xl font-bold mb-1.5">Finish & Submit Examination?</h3>
-              <p className="text-xs opacity-75 mb-4 leading-relaxed">
-                Are you sure you want to conclude the test now? Your score, response matrix, and proctoring telemetry will be finalized and sent to faculty.
-              </p>
-
-              <div className="p-3.5 rounded-xl bg-white/5 border border-white/10 text-xs mb-5 space-y-2">
-                <div className="flex justify-between items-center">
-                  <span className="opacity-70">Answered Questions:</span>
-                  <span className="font-bold text-emerald-400">{currentAnswered} of {shuffledQuestions.length}</span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="opacity-70">Unanswered Questions:</span>
-                  <span className={`font-bold ${unanswered > 0 ? 'text-amber-400' : 'text-slate-400'}`}>
-                    {unanswered}
-                  </span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="opacity-70">Recorded Warnings:</span>
-                  <span className="font-bold text-indigo-400">{violationCount} / {activeExam.maxViolations || 3}</span>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-3">
-                <button
-                  type="button"
-                  onClick={() => setShowFinishConfirmModal(false)}
-                  className="flex-1 py-2.5 rounded-xl border border-white/20 text-xs font-semibold hover:bg-white/10 transition-colors cursor-pointer"
-                >
-                  Return to Exam
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowFinishConfirmModal(false);
-                    handleFinalSubmit('submitted');
-                  }}
-                  className="flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-lg shadow-emerald-600/30 transition-all cursor-pointer"
-                >
-                  Confirm & Submit
-                </button>
-              </div>
+      {/* Finish Exam Confirmation Modal */}
+      {showFinishConfirmModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md">
+          <motion.div
+            initial={{ scale: 0.9, opacity: 0, z: -100 }}
+            animate={{ scale: 1, opacity: 1, z: 0 }}
+            className="max-w-md w-full rounded-3xl glass-panel-elevated p-6 text-center text-white shadow-2xl border border-cyan-400/30"
+          >
+            <div className="w-14 h-14 rounded-2xl bg-cyan-500/20 text-[#5DE8FF] mx-auto flex items-center justify-center mb-4 border border-cyan-400/40">
+              <CheckCircle2 className="w-8 h-8" />
             </div>
-          </div>
-        );
-      })()}
+            <h3 className="text-xl font-bold text-white mb-2 font-display">Confirm Assessment Submission</h3>
+            <p className="text-sm text-slate-300 mb-5">
+              You have answered{' '}
+              <strong className="text-[#5DE8FF]">
+                {Object.keys(selectedAnswers).length} of {shuffledQuestions.length}
+              </strong>{' '}
+              questions. Once submitted, your score and proctoring log will be recorded.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowFinishConfirmModal(false)}
+                className="flex-1 py-2.5 rounded-xl border border-white/20 hover:bg-white/10 text-xs font-semibold"
+              >
+                Continue Test
+              </button>
+              <button
+                onClick={() => handleFinalSubmit('submitted')}
+                className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 text-white font-bold text-xs shadow-md shadow-emerald-500/30"
+              >
+                Submit Now
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
     </div>
   );
 };
+export default StudentPortal;
